@@ -18,6 +18,7 @@ warnings.filterwarnings("ignore")
 plt.ion()   # interactive mode
 import datetime
 import wandb
+from torchvision import transforms
 
 def test_device(device: str):
     torch.ones(1,2,3).to(device)

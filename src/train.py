@@ -33,7 +33,7 @@ from skimage import io, transform
 from torch.utils.data import Dataset, DataLoader
 from torch.utils.data.sampler import SubsetRandomSampler
 from torchvision import transforms, utils
-
+import torch.nn.functional as tf
 # Ignore warnings
 import warnings
 warnings.filterwarnings("ignore")
@@ -47,11 +47,26 @@ from albumentations.pytorch import ToTensor
 
 import datetime
 from utils import *
-from dataset import *
+from prepare_data import *
+from model import *
 import shutil
 import argparse
 
-def train(model, device, train_loader, optimizer, loss_function, epoch, name,  log_path, num_classes=2):
+
+def criterion(y_pred, y_true, epsilon = 1e-6, num_classes = 6):
+    y_pred = to_numpy(tf.one_hot(y_pred, num_classes))
+    y_true = to_numpy(tf.one_hot(y_true, num_classes))
+    tp = np.sum(y_true *y_pred, axis = 0)
+    tn = np.sum((1 - y_true) * (1 - y_pred), axis =0)
+    fp = np.sum((1 - y_true) * y_pred, axis=0)
+    fn = np.sum(y_true * (1 - y_pred), axis=0)
+    
+    precision = tp / (tp + fp + epsilon)
+    recall = tp / (tp + fn + epsilon)
+    f1 = 2* (precision*recall) / (precision + recall + epsilon)
+    return (np.mean(precision), np.mean(f1))
+
+def train(model, device, train_loader, optimizer, loss_function, epoch, name,  log_path, num_classes=2, wandb_log=0):
     """
     Args: 
         model: Pytorch model instance
@@ -65,6 +80,7 @@ def train(model, device, train_loader, optimizer, loss_function, epoch, name,  l
     best_f1 = 0
     best_loss_so_far = 10
     running_loss = 0
+    print(f"wandb {wandb_log}")
     for idx, batch_data in enumerate(tqdm(train_loader)):
         data, target = batch_data.images.to(device), batch_data.labels.to(device)
         optimizer.zero_grad()
@@ -86,35 +102,37 @@ def train(model, device, train_loader, optimizer, loss_function, epoch, name,  l
     
     running_loss = running_loss/len(train_loader.dataset)
     f1 = f1_score(to_numpy(preds), to_numpy(targets), average="macro") 
-    roc = roc_auc_score(y_score = to_numpy(torch.softmax(outputs, dim=1)), \
-                            y_true = to_numpy(torch.nn.functional.one_hot(targets, num_classes)), \
-                           average = 'macro')
-    ap = precision_score(to_numpy(preds), to_numpy(targets), average="macro")
+    ap, f1_my = criterion(preds, targets)
+    #roc = roc_auc_score(y_score = to_numpy(torch.sigmoid(outputs, dim=1)), \
+                     #       y_true = to_numpy(torch.nn.functional.one_hot(targets, num_classes)), \
+                      #     average = 'macro')
+    #ap = precision_score(to_numpy(preds), to_numpy(targets), average="macro")
     
-    wandb.log({'Train loss': running_loss, 'F1': f1, "ROC-AUC": roc,\
+    if wandb_log==1:
+        print(1)
+        wandb.log({'Train loss': running_loss, 'F1': f1, "F1 (my)": f1_my,\
                'AP': ap}, step=epoch)
    
     print(
-        "Train Epoch: {} \tLoss: {:.6f}    F1: {:.4f}    ROC-AUC: {:.4f}".format(
-            epoch, running_loss, f1, roc
+        "Train Epoch: {} \tLoss: {:.6f}    F1: {:.4f}    My F1: {:.4f}, AP: {:.4f}".format(
+            epoch, running_loss, f1, f1_my, ap
         )
     )
     
     if running_loss < best_loss_so_far:
         best_loss_so_far = loss
-        wandb.run.summary['Best train loss'] = loss
-        wandb.run.summary['Best epoch'] = epoch
-        wandb.save(os.path.join(wandb.run.dir, name+'.h5'))
+        if (wandb_log==1):
+            wandb.run.summary['Best train loss'] = loss
+            wandb.run.summary['Best epoch'] = epoch
+            wandb.save(os.path.join(wandb.run.dir, name+'.h5'))
         torch.save({
             'epoch': epoch + 1,
             'state_dict': model.state_dict(),
             'optimizer': optimizer.state_dict()
         }, log_path + "trained_models/" + name +".pth")
-    
+    return len(targets), running_loss
 
-                
-    
-def test(model, device, test_loader, loss_function, epoch, num_classes=2):
+def test(model, device, test_loader, loss_function, epoch, num_classes=2, wandb_log = 0):
     model.eval()
     model.to(device)
     test_loss = 0
@@ -142,12 +160,13 @@ def test(model, device, test_loader, loss_function, epoch, num_classes=2):
     test_loss /= len(test_loader.dataset)
     
     f1 = f1_score(to_numpy(preds), to_numpy(targets), average="macro") 
-    roc = roc_auc_score(y_score = to_numpy(torch.softmax(outputs, dim=1)), \
-                            y_true = to_numpy(torch.nn.functional.one_hot(targets, num_classes)), \
-                           average = 'macro')
-    ap = precision_score(to_numpy(preds), to_numpy(targets), average="macro")
-    
-    wandb.log({'Test loss': test_loss, 'Test F1': f1,  "Test ROC-AUC": roc,\
+    #roc = roc_auc_score(y_score = to_numpy(torch.softmax(outputs, dim=1)), \
+     #                       y_true = to_numpy(torch.nn.functional.one_hot(targets, num_classes)), \
+     #                      average = 'macro')
+    #ap = precision_score(to_numpy(preds), to_numpy(targets), average="macro")
+    ap, f1_my = criterion(preds, targets)
+    if(wandb_log==1):
+        wandb.log({'Test loss': test_loss, 'Test F1': f1,  "Test F1 (my)": f1_my,\
              'Test AP': ap}, step=epoch)
     print(
         "\nTest set: Average loss: {:.4f}, F1: {:.4f}\n".format(
@@ -155,99 +174,113 @@ def test(model, device, test_loader, loss_function, epoch, num_classes=2):
             f1
         )
     )
+    return len(targets)
 
-def main():
-    parser = argparse.ArgumentParser(description='Train and test loop! Default model: resnet18.')
-    parser.add_argument("--lr", default=1e-3, help="Set up learning rate, default: 1e-3")
-    parser.add_argument("--batch_size", default=64, help="Set up batch size, default: 64")
-    parser.add_argument("--image_size", default=128, help="Set up image size, default: 128 (for rn18)")
-    parser.add_argument("--path", default='/project/', help="Set up working dir, default: /project")
-    parser.add_argument("--name", default='rn-18', help="Set up model name")
-    parser.add_argument("--epochs", default=100, help="Set up num of epochs, default: 100")
-    parser.add_argument("--num_classes", default=6, help="Set up num of classes, default: 6 (oil)")
-    args = parser.parse_args()
+def train_loop(args):
+    """
+        Does all train/test stuff. Prepares model, data etc.
+        
+        Args: Dict with:
+            lr (float): Learning rate
+            batch_size (int): Batch size
+            image_size (int): Height of cropped square image in pixels
+            path (str): Path to poject, paths to data, notebooks etc set as subdirectories.
+            epochs (int): Num of epochs for learning
+            num_classes (int): Number of classes
+            base (str): Base model, as resnet18 or resnet50
+            type (str): Type of learning, as ft (fine-tune), tl (transfer) or ae (autoencoder)
+            tags (str): String what makes your model name individual!
+            wandb (bool): Log to wandb
+              
+    """
     LR = float(args.lr)
     BATCH_SIZE = int(args.batch_size)
     IMAGE_SIZE = int(args.image_size)
-    NAME = args.name
+    
     PATH = args.path
     LOG_PATH = PATH +'logs/'
     DATA_PATH = PATH + 'data/'
-    DEVICE = torch.device("cpu")
+    DEVICE = torch.device("cuda")
     EPOCHS  = int(args.epochs)
     NUM_CLASSES = int(args.num_classes)
-    set_seed()
-    wandb.init(project="kern", name=NAME, dir=LOG_PATH)
-    print("Super!")
+    TYPE = args.type
+    BASE = args.base
+    NAME = args.tags + '_'+ BASE + '_' + TYPE + '_' + str(LR) + '_' + str(NUM_CLASSES)
+    WANDB = int(args.wandb)
+    WD = float(args.wd)
+    B1 = float(args.b1)
+    B2 = float(args.b2)
     
+    INP_SIZE = int(args.inp_size)
+    random.seed(42)
+    np.random.seed(42)
+    torch.manual_seed(42)
+    torch.cuda.manual_seed_all(42)
+    torch.cuda.manual_seed(42)
+    torch.backends.cudnn.enabled = False 
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = True
+    
+    if WANDB==1:
+        print('wandb!')
+        wandb.init(project="kern", name=NAME, dir=LOG_PATH)
+        wandb.config.Tags = args.tags.split('#')
     transform = strong_aug(p=0.5, image_size=IMAGE_SIZE)
 
+    print("==> Preparing data")
+    train_loader, test_loader = prepare_dataset(csv_file_uf=DATA_PATH+'data_uf.csv',csv_file_dc=DATA_PATH+'data_dc.csv',
+                                        root_dir=DATA_PATH, transform = transform, image_size=IMAGE_SIZE, batch_size=BATCH_SIZE, train_prop=0.8)
 
-    dataset = KernDataset(csv_file_uf=DATA_PATH+'data_uf.csv',csv_file_dc=DATA_PATH+'data_dc.csv',
-                                        root_dir=DATA_PATH, transform = strong_aug(p=0.5), image_size=IMAGE_SIZE)
+    if (BASE.find('resnet')!=-1):
+        model, optimizer, loss = prepare_base_model(lr=LR, device=DEVICE, name=BASE, weight_decay=WD, beta_1=B1, beta_2=B2)
+    elif (BASE.find('auto')!=-1):
+        model, optimizer, loss = auto_prepare_model(lr=LR, device=DEVICE, name=BASE, inp_size = INP_SIZE, weight_decay=WD, beta_1=B1, beta_2=B2)
+    else:
+        model, optimizer, loss = prepare_eff_model(lr=LR, device=DEVICE, name=BASE, inp_size = INP_SIZE, weight_decay=WD, beta_1=B1, beta_2=B2)
 
-    train_size = int(0.8 * len(dataset))
-    test_size = len(dataset) - train_size
-
-    train_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, test_size])
-
-    train_loader = torch.utils.data.DataLoader(
-        train_dataset,
-        batch_size=BATCH_SIZE,
-        shuffle=False,
-        collate_fn=DatasetItem.collate,
-        num_workers=4,
-        worker_init_fn=set_seed()
-    )
-
-    test_loader = torch.utils.data.DataLoader(
-        test_dataset,
-        batch_size=BATCH_SIZE,
-        shuffle=False,
-        collate_fn=DatasetItem.collate,
-        num_workers=4,
-        worker_init_fn=set_seed()
-    )
-
-    model = models.resnet18(pretrained=True)
-    model.fc = nn.Linear(512, 6)
-    #print(model)
-    temp = model.conv1.weight
-    model.conv1 = nn.Conv2d(6, 64, kernel_size=7, stride=2, padding=3, bias=False)
-    model.conv1.weight = nn.Parameter(torch.cat((temp,temp),dim=1))
-    #print(model.conv1.weight.size())
-    #torch.nn.init.xavier_uniform_(model_dc.fc.bias)
-    #with torch.no_grad():
-    #  model_dc.fc.bias = nn.Parameter(torch.Tensor([0.5, 0.5]))
-     
-    model = model.to(DEVICE)
-
-    optimizer = optim.Adam(model.parameters(), lr=LR)
-
-    loss_function = loss.CrossEntropyLoss()
     torch.save({
             'epoch': 0,
             'state_dict': model.state_dict(),
             'optimizer': optimizer.state_dict()
         }, LOG_PATH + "trained_models/" + NAME +".pth")
-    save_files_to_wandb(log_path = LOG_PATH, name=NAME) 
-    for epoch in range(EPOCHS):
-        train(model, DEVICE, train_loader, optimizer, loss_function, epoch, name = NAME, num_classes=NUM_CLASSES, log_path = LOG_PATH)
+    if (WANDB == 1):
         save_files_to_wandb(log_path = LOG_PATH, name=NAME) 
-        wandb.config.update({
-        "name": NAME,
-        "type": 'fine-tune',
-        "epochs" : epoch,
-        "batch_size" : BATCH_SIZE,
-        "img_dim" : IMAGE_SIZE,
-        "num_classes" : NUM_CLASSES,
-        "n_train" : len(train_dataset),
-        "n_valid" : len(test_dataset),
-        "fc_size" : 512,
-        "lr" : LR,
-        "base_model" : 'resnet18' 
-            }, allow_val_change=True)
-        test(model, DEVICE, test_loader, loss_function, epoch, num_classes=NUM_CLASSES)
-
+    print("==> Training model")
+    for epoch in range(EPOCHS):
+        train_len, train_loss = train(model, DEVICE, train_loader, optimizer, loss, epoch, name = NAME, num_classes=NUM_CLASSES, log_path = LOG_PATH, wandb_log = WANDB)
+        test_len = test(model, DEVICE, test_loader, loss, epoch, num_classes=NUM_CLASSES, wandb_log=WANDB)
+        if WANDB==1:   
+            save_files_to_wandb(log_path = LOG_PATH, name=NAME) 
+            wandb.config.update({
+                "name": NAME,
+                "type": TYPE,
+                "epochs" : epoch,
+                "batch_size" : BATCH_SIZE,
+                "img_dim" : IMAGE_SIZE,
+                "num_classes" : NUM_CLASSES,
+                "n_train" : train_len,
+                "n_valid" : test_len,
+                "lr" : LR,
+                "base_model" : BASE 
+                    }, allow_val_change=True)
+        
+def main():
+    parser = argparse.ArgumentParser(description="Train and test loop! Default model: resnet18.                                      NAME = TAGS_BASE_TYPE_LR_NUM_CLASSES.")
+    parser.add_argument("--lr", default=1e-3, help="Set up learning rate, default: 1e-3")
+    parser.add_argument("--batch_size", default=64, help="Set up batch size, default: 64")
+    parser.add_argument("--image_size", default=128, help="Set up image size, default: 128 (for rn18)")
+    parser.add_argument("--path", default='/project/', help="Set up working dir, default: /project")
+    parser.add_argument("--tags", default='', help="Make model name individual")
+    parser.add_argument("--epochs", default=200, help="Set up num of epochs, default: 100")
+    parser.add_argument("--num_classes", default=6, help="Set up num of classes, default: 6 (oil)")
+    parser.add_argument("--type", default="ft", help="Log type of learning, default: fine-tune (ft)")
+    parser.add_argument("--base", default="resnet18", help="Log type of base model, default: resnet18")
+    parser.add_argument("--wandb", default=True, help="Log to wandb, default: True")
+    parser.add_argument("--inp_size", default=1280, help="FC layer input size, default:1280")
+    parser.add_argument("--b1", default=0.9, help="Beta 1, default: 0.9")
+    parser.add_argument("--b2", default=0.999, help="Beta 2, default: 0.999")
+    parser.add_argument("--wd", default=1e-3, help="Weight decay, default: 1e-3")
+    args = parser.parse_args()
+    train_loop(args)
 if __name__ == "__main__":
     main()
