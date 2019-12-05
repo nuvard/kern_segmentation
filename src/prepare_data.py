@@ -22,7 +22,7 @@ from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms, utils
 
 
-from albumentations import RandomCrop, Normalize, HorizontalFlip, Resize, RandomSizedCrop
+from albumentations import RandomCrop, Normalize, HorizontalFlip, Resize, RandomSizedCrop, HueSaturationValue, RandomBrightness, GaussNoise,ISONoise
 from albumentations import Compose
 from albumentations.pytorch import ToTensor
 import datetime
@@ -36,10 +36,15 @@ from sampler import ImbalancedDatasetSampler
 
 
 
+
 def strong_aug(p=0.5, image_size=128):
     return Compose(
-
-      [ RandomSizedCrop(min_max_height=(int(image_size*0.8), int(image_size)), height=image_size, width=image_size, p=1),
+      [  
+          #HueSaturationValue(hue_shif_limit=5, sat_shift_limit=5, val_shift_limit=5, p=p),
+          RandomBrightness(limit=0.1, p=p),
+         # GaussNoise(var_limit=20, p=p),
+          #ISONoise(p=p),
+          RandomSizedCrop(min_max_height=(int(image_size*0.8), int(image_size)), height=image_size, width=image_size, p=1),
         #RandomCrop(image_size, image_size, p=1),
         HorizontalFlip(p=p),
         
@@ -107,6 +112,7 @@ class KernDataset(Dataset):
     def __len__(self):
         return len(self.data_uf)
     
+
       
     def __getitem__(self, idx):
         #print('idx '+str(idx))
@@ -120,17 +126,17 @@ class KernDataset(Dataset):
         image_dc = Image.open(dc_img_name)
         image_uf = Image.open(uf_img_name).resize(image_dc.size)
         
-        crop_size = min(image_dc.size[1], int(image_dc.size[1]*(self.acc/layer_width))-1)
+        crop_size = min(image_dc.size[0],image_dc.size[1], int(image_dc.size[1]*(self.acc/layer_width))-1)
             
         image_np = np.concatenate((np.array(image_dc),np.array(image_uf)), axis=-1)
         
-        transf = RandomCrop(crop_size,image_dc.size[0] )
+        transf = RandomCrop(crop_size,crop_size )
         image_np = transf(image=image_np)['image']
         #print('image_size'+str(image_np.shape))
         #print('crop_size' + str( crop_size))
         #print('desired size:' + str(int(1.1*self.image_size+1)))
-        if (crop_size<int(self.image_size*1.3)+1):
-            transf = Resize(int(1.3*self.image_size), int(image_dc.size[0]*(int(1.3*self.image_size)/crop_size)+1))
+        if (crop_size<int(self.image_size)):
+            transf = Resize(int(self.image_size), int(self.image_size))
             image_np = transf(image=image_np)['image']
         if (transform is not None):
             augmented = self.transform(image = image_np)['image']
@@ -160,8 +166,7 @@ def prepare_dataset(csv_file_uf, csv_file_dc, root_dir, transform, image_size=12
     test_loader = torch.utils.data.DataLoader(
         test_dataset,
         batch_size=batch_size,
-        shuffle=False,
-        sampler=ImbalancedDatasetSampler(test_dataset),
+        shuffle=True,
         collate_fn=DatasetItem.collate,
         num_workers=num_workers,
         worker_init_fn=set_seed()

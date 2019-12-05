@@ -47,7 +47,9 @@ from albumentations.pytorch import ToTensor
 
 import datetime
 from autoencoder import Autoencoder
-
+from efficientnet_pytorch import EfficientNet
+from efficientnet_pytorch.utils import Conv2dStaticSamePadding
+from attention_augmented_conv import AugmentedConv
 
 """
 Prepares model, loss and optimizer. 
@@ -163,7 +165,7 @@ def prepare_base_model(device, name = 'resnet18', lr=1e-5, beta_1=0.9, beta_2=0.
 
 
 
-def prepare_eff_model(device, name ='effitientnet_b0',  lr=1e-5, beta_1=0.9, beta_2=0.999, weight_decay=1e-3, inp_size = 1280):
+def prepare_eff_model(device, name ='effitientnet_b0',  lr=1e-5, beta_1=0.9, beta_2=0.999, weight_decay=1e-3, inp_size = 1280, im_size=224):
     """
     Args:
       device: torch device (like torch.device("cuda"))
@@ -173,18 +175,61 @@ def prepare_eff_model(device, name ='effitientnet_b0',  lr=1e-5, beta_1=0.9, bet
       tuple of (model, optimizer, loss)
     """      
     print("==> Preparing model")
-    torch.hub.list('rwightman/gen-efficientnet-pytorch') 
-    model =  torch.hub.load('rwightman/gen-efficientnet-pytorch', name, pretrained=True)
-    
-    model.classifier = nn.Sequential(nn.Dropout(0.2),
+    if(name.find('_')!=-1):
+        torch.hub.list('rwightman/gen-efficientnet-pytorch') 
+        model =  torch.hub.load('rwightman/gen-efficientnet-pytorch', name, pretrained=True)
+        print(model) 
+        """
+        model.global_pool = nn.Sequential(
+            nn.Conv2d(1280, 6, kernel_size=1, stride=1, bias=False),
+            nn.Dropout(0.2),
+                      nn.ReLU(True),
+                      nn.AdaptiveAvgPool2d(1))
+        
+        model.classifier = nn.Sequential(#nn.Dropout(0.2),
+                      #nn.ReLU(True),
+                      #nn.AdaptiveAvgPool1d(6),
+                      nn.Linear(6, 6)    
+                      )   
+        """
+        model.global_pool = nn.Sequential(
+                     nn.BatchNorm2d(1280), 
+                     #nn.Conv2d(1280, 200, kernel_size=1, padding = 1, stride=1, bias=False),
+                     #nn.Dropout(p=0.25),
+                     nn.ReLU(),
+                     nn.AdaptiveAvgPool2d(1),
+                     
+                      )
+        
+        model.classifier = nn.Sequential(
+            #nn.BatchNorm1d(1280), 
+            #nn.Dropout(p=0.25),
+            #nn.BatchNorm1d(inp_size, eps=1e-05, momentum=0.1),
+            #nn.Dropout(p=0.5),
+            nn.ReLU(),
+            nn.Linear(inp_size, 6)
+        ) 
+        print("Adding attention");
+        temp = model.conv_stem.weight
+        model.conv_stem = AugmentedConv(in_channels=6, out_channels=64, kernel_size=7, dk=40, dv=4, Nh=4, relative=True, stride=2, shape=im_size).to(device)
+        
+        #model.conv_stem = nn.Conv2d(6, 64, kernel_size=7, stride=2, padding=3, bias=False)
+      #  model.conv_stem.weight = nn.Parameter(torch.cat((temp,temp),dim=1))
+        print(model)
+    else:
+        
+        model = EfficientNet.from_pretrained(name) 
+        print(model)
+
+        model._fc = nn.Sequential(nn.Dropout(0.2),
                       #nn.ReLU(True),
                       nn.Linear(inp_size, 6)
                       )    
+        #print(model)
+        temp = model._conv_stem.weight
     
-    temp = model.conv_stem.weight
-    
-    model.conv_stem = nn.Conv2d(6, 64, kernel_size=7, stride=2, padding=3, bias=False)
-    model.conv_stem.weight = nn.Parameter(torch.cat((temp,temp),dim=1))
+        model._conv_stem = Conv2dStaticSamePadding(6, 32, image_size=im_size, kernel_size=3, bias=False)
+        model._conv_stem.weight = nn.Parameter(torch.cat((temp,temp),dim=1))
     optimizer = optim.Adam(model.parameters(), lr=lr, betas=(beta_1,beta_2), weight_decay=weight_decay)
     #print(model)
     loss_function = loss.CrossEntropyLoss()

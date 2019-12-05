@@ -2,8 +2,8 @@ import torch
 import torch.utils.data
 import torchvision
 from tqdm import tqdm
-import numba
-__author__ = "ufoym"
+#import numba
+
 
 class ImbalancedDatasetSampler(torch.utils.data.sampler.Sampler):
     """Samples elements randomly from a given list of indices for imbalanced dataset
@@ -11,7 +11,7 @@ class ImbalancedDatasetSampler(torch.utils.data.sampler.Sampler):
         indices (list, optional): a list of indices
         num_samples (int, optional): number of samples to draw
     """
-    @numba.jit
+   # @numba.jit
     def get_dist(self, dataset):
         label_to_count = {}
         for idx in tqdm(self.indices):
@@ -23,7 +23,7 @@ class ImbalancedDatasetSampler(torch.utils.data.sampler.Sampler):
         return label_to_count
 
     
-    @numba.jit(parallel=True)
+   # @numba.jit(parallel=True)
     def get_weights(self, label_to_count, dataset):
         return [1.0 / label_to_count[self._get_label(dataset, idx)]
                    for idx in tqdm(self.indices)]

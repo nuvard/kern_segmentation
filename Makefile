@@ -1,5 +1,6 @@
 CODE_PATH?=src
 DATA_PATH?=data
+BACKUP_PATH?=backup
 NOTEBOOKS_PATH?=notebooks
 REQUIREMENTS_PATH?=requirements
 RESULTS_PATH?=logs
@@ -36,7 +37,7 @@ setup:
 	neuro kill $(SETUP_NAME)
 	neuro run \
 		--name $(SETUP_NAME) \
-		--preset gpu-small \
+		--preset cpu-small \
 		--detach \
 		--volume $(PROJECT_PATH_STORAGE):$(PROJECT_PATH_ENV):rw \
 		$(BASE_ENV_NAME) \
@@ -76,10 +77,17 @@ upload_notebooks:
 download_notebooks:
 	neuro cp -r $(NOTEBOOKS_PATH_STORAGE) $(NOTEBOOKS_PATH)
 
+.PHONY: download_data
+download_data:
+	neuro cp -r -u $(DATA_PATH_STORAGE) $(DATA_PATH)
+
 .PHONY: download_code
 download_code:
 	neuro cp -r $(CODE_PATH_STORAGE) $(CODE_PATH)
 
+.PHONY: download_all
+download_all:
+	neuro cp -r $(PROJECT_PATH_STORAGE) $(BACKUP_PATH)
 
 .PHONY: clean_notebooks
 clean_notebooks:
@@ -91,18 +99,36 @@ upload: upload_notebooks upload_code upload_data  upload_config upload_tests
 .PHONY: clean
 clean: clean_code clean_data clean_notebooks
 
+
+
+
 ##### JOBS #####
 
 .PHONY: training
 training:
+	( pip install numba wandb efficientnet-pytorch; \
 	neuro run \
 		--name $(TRAINING_NAME) \
-		--preset сpu-large \
+		--preset gpu-small \
 		--volume $(CODE_PATH_STORAGE):$(CODE_PATH_ENV):ro \
 		--volume $(PROJECT_PATH_STORAGE):$(PROJECT_PATH_ENV):ro \
 		--volume $(RESULTS_PATH_STORAGE):$(RESULTS_PATH_ENV):rw \
 		$(CUSTOM_ENV_NAME) \
-		'python $(CODE_PATH_ENV)/train.py --path $(PROJECT_PATH_ENV) --name $(TRAINING_NAME)'
+		'python -W ignore $(CODE_PATH_ENV)/train.py --tags "1#drop0.2#squeeze" --base "efficientnet_b1" --image_size 224 --wandb 1 --epochs 200 --batch_size 24 --inp_size 1280'; )
+  
+.PHONY: check_model
+check_model:
+	( pip install torchsummary; \
+	neuro run \
+		--name $(TRAINING_NAME) \
+		--preset gpu-small \
+		--volume $(CODE_PATH_STORAGE):$(CODE_PATH_ENV):ro \
+		--volume $(PROJECT_PATH_STORAGE):$(PROJECT_PATH_ENV):ro \
+		--volume $(RESULTS_PATH_STORAGE):$(RESULTS_PATH_ENV):rw \
+		$(CUSTOM_ENV_NAME) \
+		'python -W ignore $(CODE_PATH_ENV)/check_model.py'; )
+  
+
 
 .PHONY: kill_training
 kill_training:
@@ -116,7 +142,7 @@ connect_training:
 jupyter: 
 	neuro run \
 		--name $(JUPYTER_NAME) \
-		--preset gpu-small \
+		--preset gpu-large\
 		--http 8888 --no-http-auth --detach \
 		--volume $(CODE_PATH_STORAGE):$(CODE_PATH_ENV):rw \
 		--volume $(NOTEBOOKS_PATH_STORAGE):$(NOTEBOOKS_PATH_ENV):rw \
@@ -131,7 +157,7 @@ jupyter:
 jupyter2: 
 	neuro run \
 		--name $(JUPYTER2_NAME) \
-		--preset gpu-small \
+		--preset cpu-large \
 		--http 8888 --no-http-auth --detach \
 		--volume $(CODE_PATH_STORAGE):$(CODE_PATH_ENV):rw \
 		--volume $(NOTEBOOKS_PATH_STORAGE):$(NOTEBOOKS_PATH_ENV):rw \

@@ -228,16 +228,16 @@ def train_loop(args):
     transform = strong_aug(p=0.5, image_size=IMAGE_SIZE)
 
     print("==> Preparing data")
-    train_loader, test_loader = prepare_dataset(csv_file_uf=DATA_PATH+'data_uf.csv',csv_file_dc=DATA_PATH+'data_dc.csv',
-                                        root_dir=DATA_PATH, transform = transform, image_size=IMAGE_SIZE, batch_size=BATCH_SIZE, train_prop=0.8)
+    
 
     if (BASE.find('resnet')!=-1):
         model, optimizer, loss = prepare_base_model(lr=LR, device=DEVICE, name=BASE, weight_decay=WD, beta_1=B1, beta_2=B2)
     elif (BASE.find('auto')!=-1):
         model, optimizer, loss = auto_prepare_model(lr=LR, device=DEVICE, name=BASE, inp_size = INP_SIZE, weight_decay=WD, beta_1=B1, beta_2=B2)
     else:
-        model, optimizer, loss = prepare_eff_model(lr=LR, device=DEVICE, name=BASE, inp_size = INP_SIZE, weight_decay=WD, beta_1=B1, beta_2=B2)
-
+        model, optimizer, loss = prepare_eff_model(lr=LR, device=DEVICE, name=BASE, inp_size = INP_SIZE, weight_decay=WD, beta_1=B1, beta_2=B2, im_size=IMAGE_SIZE)
+    train_loader, test_loader = prepare_dataset(csv_file_uf=DATA_PATH+'data_uf.csv',csv_file_dc=DATA_PATH+'data_dc.csv',
+                                        root_dir=DATA_PATH, transform = transform, image_size=IMAGE_SIZE, batch_size=BATCH_SIZE, train_prop=0.8)
     torch.save({
             'epoch': 0,
             'state_dict': model.state_dict(),
