@@ -51,7 +51,8 @@ from prepare_data import *
 from model import *
 import shutil
 import argparse
-
+import numba
+import multiprocessing as mp
 
 def criterion(y_pred, y_true, epsilon = 1e-6, num_classes = 6):
     y_pred = to_numpy(tf.one_hot(y_pred, num_classes))
@@ -74,21 +75,26 @@ def train(model, device, train_loader, optimizer, loss_function, epoch, name,  l
         other: other is as normal
        
     """
+    #model.to(device)
+    print(next(model.parameters()).device)
     model.train()
-    model.to(device)
     correct = 0
     best_f1 = 0
     best_loss_so_far = 10
     running_loss = 0
+    running_loss
     print(f"wandb {wandb_log}")
-    for idx, batch_data in enumerate(tqdm(train_loader)):
-        data, target = batch_data.images.to(device), batch_data.labels.to(device)
+    iterator = iter(train_loader)
+    
+    for idx in tqdm(range(len(train_loader))):
+        batch_data = next(iterator)
+        data, target = batch_data.images.cuda(), batch_data.labels.cuda()
         optimizer.zero_grad()
-        output = model(data)
-        loss = loss_function(output, target)
+        output = model(data).cuda()
+        loss = loss_function(output, target).cuda()
         loss.backward()
         optimizer.step()
-        pred = output.argmax(dim=1, keepdim=True)
+        pred = tf.softmax(output).cuda().argmax(dim=1, keepdim=True)
         if (idx==0):
             preds=pred.flatten()
             outputs = output
@@ -99,7 +105,6 @@ def train(model, device, train_loader, optimizer, loss_function, epoch, name,  l
             outputs = torch.cat((outputs, output),0)
         running_loss += loss.sum().item()   
         correct += pred.eq(target.view_as(pred)).sum().item()
-    
     running_loss = running_loss/len(train_loader.dataset)
     f1 = f1_score(to_numpy(preds), to_numpy(targets), average="macro") 
     ap, f1_my = criterion(preds, targets)
@@ -124,41 +129,109 @@ def train(model, device, train_loader, optimizer, loss_function, epoch, name,  l
         if (wandb_log==1):
             wandb.run.summary['Best train loss'] = loss
             wandb.run.summary['Best epoch'] = epoch
-            wandb.save(os.path.join(wandb.run.dir, name+'.h5'))
+            torch.save({
+            'epoch': epoch + 1,
+            'state_dict': model.state_dict(),
+            'optimizer': optimizer.state_dict()
+        }, wandb.run.dir + name +".pth")
+            
         torch.save({
             'epoch': epoch + 1,
             'state_dict': model.state_dict(),
             'optimizer': optimizer.state_dict()
         }, log_path + "trained_models/" + name +".pth")
+        
     return len(targets), running_loss
+def test_aug(p=0.5, image_size=128):
+    return Compose(
+      [  
+          #HueSaturationValue(hue_shif_limit=5, sat_shift_limit=5, val_shift_limit=5, p=p),
+          RandomBrightness(limit=0.1, p=p),
+         # GaussNoise(var_limit=20, p=p),
+          #ISONoise(p=p),
+          RandomSizedCrop(min_max_height=(int(image_size*0.8), int(image_size)), height=image_size, width=image_size, p=1),
+        #RandomCrop(image_size, image_size, p=1),
+        HorizontalFlip(p=p)
+      ]
+    )
+#@numba.jit()
+def augment(data):
+    for i in range(data.size()[0]):
+    #print(data[0, 0,:,:])
+        image_size = data[i].size()[-1]
+        transf = test_aug(image_size = 240)
+        to_augment = { "image" : data[i].detach().cpu().numpy()}
+        to_augment["image"] = np.moveaxis(to_augment["image"], 0, -1).astype(np.float32)
+        #print(to_augment)
+        augmented = transf(**to_augment)["image"]
 
+        data[i] = torch.from_numpy(np.moveaxis(augmented / (255.0 if augmented.dtype == np.uint8 else 1), -1, 0).astype(np.float32))
+    #print(data[0,0,:,:])
+    return data
+    
 def test(model, device, test_loader, loss_function, epoch, num_classes=2, wandb_log = 0):
+    #print(next(model.parameters()).device)
+    #model.to(device)
+    start = torch.cuda.Event(enable_timing=True)
+    end = torch.cuda.Event(enable_timing=True)
     model.eval()
-    model.to(device)
     test_loss = 0
-    correct = 0
+    test_loss
+    #correct = 0
     example_images = []
+    iterators = []
+    #for i in range(3):
+    #    iterators.append(iter(test_loader))
+    
     with torch.no_grad():
-        for idx, batch_data in enumerate(tqdm(test_loader)):
-            aug_outputs = []
-            for i in range(3):
-                data, target = batch_data.images.to(device), batch_data.labels.to(device)
-                aug_outputs.append(model(data))
-            output = torch.stack(aug_outputs)
-            output = torch.mean(output, dim=0) 
-            test_loss += loss_function(output, target).sum().item()
-            pred = output.argmax(dim=1, keepdim=True)
+        idx=0
+        iterator = iter(test_loader)
+        for idx in (tqdm(range(len(test_loader)))):
+            #print(idx)
+            #aug_outputs = torch.empty()
+            #for i in range(1):
+            
+            
+            start.record()
+            batch_data = next(iterator)  
+            end.record()
+            data, target = batch_data.images.cuda(), batch_data.labels.cuda()
+            
+            
+            
+                # target.cuda()
+                # data, target = batch_data.images.cuda(), batch_data.labels.cuda()
+                #print("++++++++++++++++++")
+                #batch_data = test_loader[idx]
+                #out = model(data)
+                #aug_outputs = torch.cat(aug_outputs)
+            #output = torch.stack(aug_outputs)
+            #output = torch.mean(output, dim=0) 
+            
+            output = model(data).cuda()
+            
+            
+            test_loss += loss_function(output, target).cuda().sum().item()
+            #print(test_loss.device)
+            pred = tf.softmax(output).argmax(dim=1, keepdim=True)
+            
+            
+            
             if (idx==0):
                 preds=pred.flatten()
                 targets=target
                 outputs=output
             else:
-                preds = torch.cat((preds, pred.flatten()),0)
-                targets = torch.cat((targets, target),0)
-                outputs = torch.cat((outputs, output),0)
-            correct += pred.eq(target.view_as(pred)).sum().item()
+                preds = torch.cat((preds, pred.flatten()),0).cuda()
+                targets = torch.cat((targets, target),0).cuda()
+                outputs = torch.cat((outputs, output),0).cuda()
+            
+            #torch.cuda.synchronize()
+            #print(start.elapsed_time(end))
+            #correct += pred.eq(target.view_as(pred)).sum().item()
     test_loss /= len(test_loader.dataset)
-    
+   
+            
     f1 = f1_score(to_numpy(preds), to_numpy(targets), average="macro") 
     #roc = roc_auc_score(y_score = to_numpy(torch.softmax(outputs, dim=1)), \
      #                       y_true = to_numpy(torch.nn.functional.one_hot(targets, num_classes)), \
@@ -169,7 +242,7 @@ def test(model, device, test_loader, loss_function, epoch, num_classes=2, wandb_
         wandb.log({'Test loss': test_loss, 'Test F1': f1,  "Test F1 (my)": f1_my,\
              'Test AP': ap}, step=epoch)
     print(
-        "\nTest set: Average loss: {:.4f}, F1: {:.4f}\n".format(
+        "Test set: Average loss: {:.4f}, F1: {:.4f}\n".format(
             test_loss,
             f1
         )
@@ -201,6 +274,19 @@ def train_loop(args):
     LOG_PATH = PATH +'logs/'
     DATA_PATH = PATH + 'data/'
     DEVICE = torch.device("cuda")
+    
+    print(DEVICE)
+    
+    print('Using device:', DEVICE)
+    print(torch.cuda.is_available())
+
+    #Additional Info when using cuda
+    if DEVICE.type == 'cuda':
+        print(torch.cuda.get_device_name(0))
+        print('Memory Usage:')
+        print('Allocated:', round(torch.cuda.memory_allocated(0)/1024**3,1), 'GB')
+        print('Cached:   ', round(torch.cuda.memory_cached(0)/1024**3,1), 'GB')
+        
     EPOCHS  = int(args.epochs)
     NUM_CLASSES = int(args.num_classes)
     TYPE = args.type
@@ -217,9 +303,10 @@ def train_loop(args):
     torch.manual_seed(42)
     torch.cuda.manual_seed_all(42)
     torch.cuda.manual_seed(42)
-    torch.backends.cudnn.enabled = False 
-    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.enabled = True
+    torch.backends.cudnn.benchmark = True
     torch.backends.cudnn.deterministic = True
+    #torch.set_default_tensor_type('torch.cuda.FloatTensor')
     
     if WANDB==1:
         print('wandb!')
@@ -236,6 +323,7 @@ def train_loop(args):
         model, optimizer, loss = auto_prepare_model(lr=LR, device=DEVICE, name=BASE, inp_size = INP_SIZE, weight_decay=WD, beta_1=B1, beta_2=B2)
     else:
         model, optimizer, loss = prepare_eff_model(lr=LR, device=DEVICE, name=BASE, inp_size = INP_SIZE, weight_decay=WD, beta_1=B1, beta_2=B2, im_size=IMAGE_SIZE)
+    model.cuda()
     train_loader, test_loader = prepare_dataset(csv_file_uf=DATA_PATH+'data_uf.csv',csv_file_dc=DATA_PATH+'data_dc.csv',
                                         root_dir=DATA_PATH, transform = transform, image_size=IMAGE_SIZE, batch_size=BATCH_SIZE, train_prop=0.8)
     torch.save({
@@ -247,8 +335,11 @@ def train_loop(args):
         save_files_to_wandb(log_path = LOG_PATH, name=NAME) 
     print("==> Training model")
     for epoch in range(EPOCHS):
-        train_len, train_loss = train(model, DEVICE, train_loader, optimizer, loss, epoch, name = NAME, num_classes=NUM_CLASSES, log_path = LOG_PATH, wandb_log = WANDB)
         test_len = test(model, DEVICE, test_loader, loss, epoch, num_classes=NUM_CLASSES, wandb_log=WANDB)
+        train_len, train_loss = train(model, DEVICE, train_loader, optimizer, loss, epoch, name = NAME, num_classes=NUM_CLASSES, log_path = LOG_PATH, wandb_log = WANDB)
+    
+    
+        
         if WANDB==1:   
             save_files_to_wandb(log_path = LOG_PATH, name=NAME) 
             wandb.config.update({
@@ -263,13 +354,14 @@ def train_loop(args):
                 "lr" : LR,
                 "base_model" : BASE 
                     }, allow_val_change=True)
-        
+    test_len = test(model, DEVICE, test_loader, loss, epoch, num_classes=NUM_CLASSES, wandb_log=WANDB)
+    
 def main():
     parser = argparse.ArgumentParser(description="Train and test loop! Default model: resnet18.                                      NAME = TAGS_BASE_TYPE_LR_NUM_CLASSES.")
     parser.add_argument("--lr", default=1e-3, help="Set up learning rate, default: 1e-3")
     parser.add_argument("--batch_size", default=64, help="Set up batch size, default: 64")
     parser.add_argument("--image_size", default=128, help="Set up image size, default: 128 (for rn18)")
-    parser.add_argument("--path", default='/project/', help="Set up working dir, default: /project")
+    parser.add_argument("--path", default='/headless/shared/kern_segmentation/', help="Set up working dir, default: /project")
     parser.add_argument("--tags", default='', help="Make model name individual")
     parser.add_argument("--epochs", default=200, help="Set up num of epochs, default: 100")
     parser.add_argument("--num_classes", default=6, help="Set up num of classes, default: 6 (oil)")
@@ -283,4 +375,8 @@ def main():
     args = parser.parse_args()
     train_loop(args)
 if __name__ == "__main__":
+    try:
+        mp.set_start_method('spawn')
+    except RuntimeError:
+        pass
     main()

@@ -50,7 +50,7 @@ from autoencoder import Autoencoder
 from efficientnet_pytorch import EfficientNet
 from efficientnet_pytorch.utils import Conv2dStaticSamePadding
 from attention_augmented_conv import AugmentedConv
-
+#from attention_augmented_conv import AttentionConv2d
 """
 Prepares model, loss and optimizer. 
 
@@ -96,7 +96,7 @@ def auto_prepare_model(device, lr=1e-5):
     optimizer = optim.Adam(model.resnet.parameters(), lr=lr)
 
     loss_function = loss.CrossEntropyLoss()
-    return (model, optimizer, loss_function)
+    return (model.cuda(), optimizer, loss_function.cuda())
 
 
 def prepare_model(device, lr=1e-5):
@@ -113,7 +113,7 @@ def prepare_model(device, lr=1e-5):
     checkpoint = torch.load('/project/logs/trained_models/autoencoder.pth')
     
     autoencoder.load_state_dict(checkpoint)
-    #print(autoencoder)                        
+    #print(autoencoder)                      
     resnet = models.resnet18(pretrained=True)
     resnet.fc = nn.Sequential(
                       nn.Dropout(0.2),
@@ -178,7 +178,7 @@ def prepare_eff_model(device, name ='effitientnet_b0',  lr=1e-5, beta_1=0.9, bet
     if(name.find('_')!=-1):
         torch.hub.list('rwightman/gen-efficientnet-pytorch') 
         model =  torch.hub.load('rwightman/gen-efficientnet-pytorch', name, pretrained=True)
-        print(model) 
+        #print(model) 
         """
         model.global_pool = nn.Sequential(
             nn.Conv2d(1280, 6, kernel_size=1, stride=1, bias=False),
@@ -193,33 +193,41 @@ def prepare_eff_model(device, name ='effitientnet_b0',  lr=1e-5, beta_1=0.9, bet
                       )   
         """
         model.global_pool = nn.Sequential(
-                     nn.BatchNorm2d(1280), 
-                     #nn.Conv2d(1280, 200, kernel_size=1, padding = 1, stride=1, bias=False),
-                     #nn.Dropout(p=0.25),
-                     nn.ReLU(),
-                     nn.AdaptiveAvgPool2d(1),
+                       AugmentedConv(in_channels=1280, out_channels=6, kernel_size=1, dk=40, dv=4, Nh=1, relative=False, stride=2),
+                     #nn.Conv2d(588, 6, kernel_size=1, padding = 1, stride=1, bias=False),
+                     nn.BatchNorm2d(6), 
+                     nn.Dropout(p=0.25),
+                     #nn.AdaptiveAvgPool2d(1)
+                     
                      
                       )
         
         model.classifier = nn.Sequential(
-            #nn.BatchNorm1d(1280), 
+           
+            #nn.BatchNorm1d(6),
+            nn.AdaptiveAvgPool2d(1)
+                     #nn.ReLU(),
+            
             #nn.Dropout(p=0.25),
             #nn.BatchNorm1d(inp_size, eps=1e-05, momentum=0.1),
             #nn.Dropout(p=0.5),
-            nn.ReLU(),
-            nn.Linear(inp_size, 6)
+            
+            #nn.ReLU(),
+            #nn.AdaptiveAvgPool2d(1),
+            #nn.Linear(inp_size, 6)
         ) 
         print("Adding attention");
         temp = model.conv_stem.weight
-        model.conv_stem = AugmentedConv(in_channels=6, out_channels=64, kernel_size=7, dk=40, dv=4, Nh=4, relative=True, stride=2, shape=im_size).to(device)
+        #model.conv_stem = AttentionConv2d(in_channels=6, out_channels=64, kernel_size=7, dk=40, dv=4, Nh=4, relative=True, stride=2, padding=3, shape = 24).to(device)
         
-        #model.conv_stem = nn.Conv2d(6, 64, kernel_size=7, stride=2, padding=3, bias=False)
-      #  model.conv_stem.weight = nn.Parameter(torch.cat((temp,temp),dim=1))
-        print(model)
+        model.conv_stem = nn.Conv2d(6, 64, kernel_size=7, stride=2, padding=3, bias=False)
+        model.conv_stem.weight = nn.Parameter(torch.cat((temp,temp),dim=1))
+       # model.cuda()
+        #print(model)
     else:
         
         model = EfficientNet.from_pretrained(name) 
-        print(model)
+        #print(model)
 
         model._fc = nn.Sequential(nn.Dropout(0.2),
                       #nn.ReLU(True),
@@ -232,5 +240,6 @@ def prepare_eff_model(device, name ='effitientnet_b0',  lr=1e-5, beta_1=0.9, bet
         model._conv_stem.weight = nn.Parameter(torch.cat((temp,temp),dim=1))
     optimizer = optim.Adam(model.parameters(), lr=lr, betas=(beta_1,beta_2), weight_decay=weight_decay)
     #print(model)
-    loss_function = loss.CrossEntropyLoss()
-    return (model, optimizer, loss_function)
+    #model.cuda()
+    loss_function = loss.CrossEntropyLoss().cuda()
+    return (model.cuda(), optimizer, loss_function)

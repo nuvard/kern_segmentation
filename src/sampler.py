@@ -2,7 +2,8 @@ import torch
 import torch.utils.data
 import torchvision
 from tqdm import tqdm
-#import numba
+import numba
+
 
 
 class ImbalancedDatasetSampler(torch.utils.data.sampler.Sampler):
@@ -22,13 +23,20 @@ class ImbalancedDatasetSampler(torch.utils.data.sampler.Sampler):
                 label_to_count[label] = 1
         return label_to_count
 
-    
-   # @numba.jit(parallel=True)
+      
+    def get_label_weights_from_pandas(self, data):
+        labels_list = []
+        for i in data['class'].value_counts():
+            labels_list.append(i)
+        #print(labels_list)
+        return labels_list
+
+    @numba.jit(parallel=True)
     def get_weights(self, label_to_count, dataset):
         return [1.0 / label_to_count[self._get_label(dataset, idx)]
-                   for idx in tqdm(self.indices)]
-    
-    def __init__(self, dataset, indices=None, num_samples=None):
+                    for idx in tqdm(self.indices)]
+
+    def __init__(self, dataset, pandas, indices=None, num_samples=None):
         print("==> Initialising sampler")
         # if indices is not provided, 
         # all elements in the dataset will be considered
@@ -42,11 +50,11 @@ class ImbalancedDatasetSampler(torch.utils.data.sampler.Sampler):
             if num_samples is None else num_samples
         print("=====> Checking distribution")
         # distribution of classes in the dataset 
-        label_to_count = self.get_dist(dataset)  
+        label_to_count = self.get_label_weights_from_pandas(pandas)  
         print("=====> Assigning weights")
         # weight for each sample
         weights = self.get_weights(label_to_count, dataset)
-        self.weights = torch.DoubleTensor(weights)
+        self.weights = torch.FloatTensor(weights)
 
     def _get_label(self, dataset, idx):
         dataset_type = type(dataset)
