@@ -30,7 +30,12 @@ class ImbalancedDatasetSampler(torch.utils.data.sampler.Sampler):
             labels_list.append(i)
         #print(labels_list)
         return labels_list
-
+    
+    def set_weights(self, data):
+        data["weight"] = 0
+        data["weight"] = data.apply(lambda x: 1/labels_list[x["class"]])
+        return data
+    
     @numba.jit(parallel=True)
     def get_weights(self, label_to_count, dataset):
         return [1.0 / label_to_count[self._get_label(dataset, idx)]
@@ -44,8 +49,6 @@ class ImbalancedDatasetSampler(torch.utils.data.sampler.Sampler):
         self.indices = list(range(len(dataset))) \
             if indices is None else indices
         print("=====> Loading samples")
-        # if num_samples is not provided, 
-        # draw `len(indices)` samples in each iteration
         self.num_samples = len(self.indices) \
             if num_samples is None else num_samples
         print("=====> Checking distribution")
@@ -53,6 +56,7 @@ class ImbalancedDatasetSampler(torch.utils.data.sampler.Sampler):
         label_to_count = self.get_label_weights_from_pandas(pandas)  
         print("=====> Assigning weights")
         # weight for each sample
+        
         weights = self.get_weights(label_to_count, dataset)
         self.weights = torch.FloatTensor(weights)
 

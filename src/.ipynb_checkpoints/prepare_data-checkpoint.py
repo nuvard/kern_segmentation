@@ -44,7 +44,7 @@ def strong_aug(p=0.5, image_size=128):
         #RandomCrop(image_size, image_size, p=1),
         HorizontalFlip(p=p),
         
-        Normalize([0.4802, 0.4481, 0.3975, 0.4802, 0.4481, 0.3975], [0.2302, 0.2265, 0.2262,0.2302, 0.2265, 0.2262])
+        #Normalize([0.4802, 0.4481, 0.3975, 0.4802, 0.4481, 0.3975], [0.2302, 0.2265, 0.2262,0.2302, 0.2265, 0.2262])
       ], 
     )
 
@@ -151,7 +151,7 @@ def get_label_weights_from_pandas(data):
     #print(labels_list)
     return labels_list
     
-def prepare_dataset(csv_file_uf, csv_file_dc, root_dir, transform, image_size=128, batch_size=64, num_workers=10, train_prop=0.8 ):
+def prepare_dataset(csv_file_uf, csv_file_dc, root_dir, transform, image_size=128, batch_size=64, num_workers=8, train_prop=0.7 ):
     
     dataset = KernDataset(csv_file_uf=csv_file_uf,csv_file_dc=csv_file_dc,
                                         root_dir=root_dir, transform = transform, image_size=image_size)
@@ -167,7 +167,8 @@ def prepare_dataset(csv_file_uf, csv_file_dc, root_dir, transform, image_size=12
         train_dataset,
         batch_size=batch_size,
         shuffle=False,
-        sampler=ImbalancedDatasetSampler(train_dataset, pandas = temp, num_samples=int(len(train_dataset)*2)),
+        #sampler = RandomSampler(data_source=test_dataset, num_samples=int(len(test_dataset)), replacement=True),
+        sampler=ImbalancedDatasetSampler(train_dataset, pandas = temp, num_samples=int(len(train_dataset))),
         collate_fn=DatasetItem.collate,
         num_workers=num_workers,
         pin_memory=True,
@@ -178,7 +179,7 @@ def prepare_dataset(csv_file_uf, csv_file_dc, root_dir, transform, image_size=12
         test_dataset,
         batch_size=batch_size,
         shuffle=False,
-        sampler = RandomSampler(data_source=test_dataset, num_samples=int(len(test_dataset)*2), replacement=True),
+        sampler = RandomSampler(data_source=test_dataset, num_samples=int(len(test_dataset)), replacement=True),
         collate_fn=DatasetItem.collate,
         num_workers=num_workers,
         pin_memory=True,

@@ -193,11 +193,11 @@ def prepare_eff_model(device, name ='effitientnet_b0',  lr=1e-5, beta_1=0.9, bet
                       )   
         """
         model.global_pool = nn.Sequential(
-                       AugmentedConv(in_channels=1280, out_channels=6, kernel_size=1, dk=40, dv=4, Nh=1, relative=False, stride=2),
+                       #AugmentedConv(in_channels=1280, out_channels=200, kernel_size=1, dk=40, dv=4, Nh=1, relative=False, stride=2),
                      #nn.Conv2d(588, 6, kernel_size=1, padding = 1, stride=1, bias=False),
-                     nn.BatchNorm2d(6), 
+                     nn.BatchNorm2d(1280), 
                      nn.Dropout(p=0.25),
-                     #nn.AdaptiveAvgPool2d(1)
+                     nn.AdaptiveAvgPool2d(1)
                      
                      
                       )
@@ -205,16 +205,17 @@ def prepare_eff_model(device, name ='effitientnet_b0',  lr=1e-5, beta_1=0.9, bet
         model.classifier = nn.Sequential(
            
             #nn.BatchNorm1d(6),
-            nn.AdaptiveAvgPool2d(1)
+            
                      #nn.ReLU(),
             
             #nn.Dropout(p=0.25),
-            #nn.BatchNorm1d(inp_size, eps=1e-05, momentum=0.1),
-            #nn.Dropout(p=0.5),
+            nn.BatchNorm1d(1280, eps=1e-05, momentum=0.1),
+            nn.Dropout(p=0.5),
             
-            #nn.ReLU(),
+            nn.ReLU(),
             #nn.AdaptiveAvgPool2d(1),
-            #nn.Linear(inp_size, 6)
+            nn.Linear(200, 6),
+           # nn.AdaptiveAvgPool2d(1),
         ) 
         print("Adding attention");
         temp = model.conv_stem.weight
@@ -222,7 +223,11 @@ def prepare_eff_model(device, name ='effitientnet_b0',  lr=1e-5, beta_1=0.9, bet
         
         model.conv_stem = nn.Conv2d(6, 64, kernel_size=7, stride=2, padding=3, bias=False)
         model.conv_stem.weight = nn.Parameter(torch.cat((temp,temp),dim=1))
-       # model.cuda()
+        temp = model.conv_stem.weight
+        model.conv_stem = nn.Sequential(
+        AugmentedConv(in_channels=6, out_channels=6, kernel_size=1, dk=40, dv=4, Nh=1, relative=False, stride=1),    
+        nn.Conv2d(6, 64, kernel_size=7, stride=2, padding=3, bias=False),)
+    # model.cuda()
         #print(model)
     else:
         
