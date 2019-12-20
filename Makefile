@@ -157,7 +157,7 @@ jupyter:
 jupyter2: 
 	neuro run \
 		--name $(JUPYTER2_NAME) \
-		--preset cpu-large \
+		--preset gpu-large \
 		--http 8888 --no-http-auth --detach \
 		--volume $(CODE_PATH_STORAGE):$(CODE_PATH_ENV):rw \
 		--volume $(NOTEBOOKS_PATH_STORAGE):$(NOTEBOOKS_PATH_ENV):rw \

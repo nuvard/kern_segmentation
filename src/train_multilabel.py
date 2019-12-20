@@ -47,20 +47,20 @@ from albumentations.pytorch import ToTensor
 
 import datetime
 from utils import *
-from prepare_data import *
-from model import *
+from prepare_data_multilabel import *
+from model_multilabel import *
 import shutil
 import argparse
 import numba
 import ttach as tta
 
 
-def criterion(y_pred, y_true, epsilon = 1e-6, num_classes = 6, train=False):
-    y_pred = to_numpy(tf.one_hot(y_pred, num_classes))
-    y_true = to_numpy(tf.one_hot(y_true, num_classes))
+def criterion(y_pred, y_true, epsilon = 1e-6, num_classes = 8, train=False):
+    y_pred = to_numpy(y_pred)
+    y_true = to_numpy(y_true)
     #if(train==True):
-    print(np.sum(y_true, axis=0))
-    print(np.sum(y_pred, axis=0))
+    print(f"{np.sum(y_true, axis=0)} - count of true targets")
+    print(f"{np.sum(y_pred, axis=0)} - count of predicted targets")
     tp = np.sum(y_true *y_pred, axis = 0)
     tn = np.sum((1 - y_true) * (1 - y_pred), axis =0)
     fp = np.sum((1 - y_true) * y_pred, axis=0)
@@ -71,7 +71,7 @@ def criterion(y_pred, y_true, epsilon = 1e-6, num_classes = 6, train=False):
     f1 = 2* (precision*recall) / (precision + recall + epsilon)
     return (np.mean(precision), np.mean(f1))
 
-def train(model, device, train_loader, optimizer, loss_function, epoch, name,  log_path, num_classes=2, wandb_log=0):
+def train(model, device, train_loader, optimizer, loss_function, epoch, name,  log_path, num_classes=2, wandb_log=0, treshold=0.5):
     """
     Args: 
         model: Pytorch model instance
@@ -91,6 +91,7 @@ def train(model, device, train_loader, optimizer, loss_function, epoch, name,  l
     iterator = iter(train_loader)
     
     for idx in tqdm(range(len(train_loader))):
+        #print(batch_data)
         batch_data = next(iterator)
         data, target = batch_data.images.cuda(), batch_data.labels.cuda()
         optimizer.zero_grad()
@@ -98,34 +99,35 @@ def train(model, device, train_loader, optimizer, loss_function, epoch, name,  l
         loss = loss_function(output, target).cuda()
         loss.backward()
         optimizer.step()
-        pred = output.argmax(dim=1, keepdim=True)
+        pred = torch.as_tensor((torch.sigmoid(output) - treshold) > 0, dtype=torch.float).cuda()
+        #print(pred)
         if (idx==0):
-            preds=pred.flatten()
+            preds=pred
             outputs = output
             targets=target
         else:
-            preds = torch.cat((preds, pred.flatten()),0)
+            preds = torch.cat((preds, pred),0)
             targets = torch.cat((targets, target),0)
             outputs = torch.cat((outputs, output),0)
         running_loss += loss.sum().item()   
-        correct += pred.eq(target.view_as(pred)).sum().item()
+        #correct += pred.eq(target.view_as(pred)).sum().item()
     running_loss = running_loss/len(train_loader.dataset)
-    f1 = f1_score(to_numpy(preds), to_numpy(targets), average="macro") 
+    #f1 = f1_score(to_numpy(preds), to_numpy(targets), average="macro") 
     
-    ap, f1_my = criterion(preds, targets, train=True)
-    #roc = roc_auc_score(y_score = to_numpy(torch.sigmoid(outputs, dim=1)), \
-                     #       y_true = to_numpy(torch.nn.functional.one_hot(targets, num_classes)), \
-                      #     average = 'macro')
+    ap, f1_my = criterion(preds, targets, train=True, num_classes=num_classes)
+    roc = roc_auc_score(y_score = to_numpy(torch.sigmoid(outputs)), \
+                            y_true = to_numpy(targets), \
+                           average = 'macro')
     #ap = precision_score(to_numpy(preds), to_numpy(targets), average="macro")
     
     if wandb_log==1:
         print(1)
-        wandb.log({'Train loss': running_loss, 'F1': f1, "F1 (my)": f1_my,\
-               'AP': ap}, step=epoch)
+        wandb.log({'Train loss': running_loss, "F1 (my)": f1_my,\
+               'AP': ap, 'ROC-AUC': roc}, step=epoch)
    
     print(
-        "Train Epoch: {} \tLoss: {:.6f}    F1: {:.4f}    My F1: {:.4f}, AP: {:.4f}".format(
-            epoch, running_loss, f1, f1_my, ap
+        "Train Epoch: {} \tLoss: {:.6f}  My F1: {:.4f}, AP: {:.4f}, ROC-AUC: {:.3f}".format(
+            epoch, running_loss,  f1_my, ap, roc
         )
     )
     
@@ -174,7 +176,7 @@ def augment(data, image_size=224):
         data[i] = augmented.permute(2,0,1)
     return data
     
-def test(model, device, test_loader, loss_function, epoch, num_classes=2, wandb_log = 0):
+def test(model, device, test_loader, loss_function, epoch, num_classes=2, wandb_log = 0, treshold=0.5):
     #print(next(model.parameters()).device)
     #model.to(device)
     start = torch.cuda.Event(enable_timing=True)
@@ -193,7 +195,7 @@ def test(model, device, test_loader, loss_function, epoch, num_classes=2, wandb_
         tta.HorizontalFlip(),
         #tta.Rotate90(angles=[0, 5]),
         tta.Scale(scales=[0.85, 1, 1.15]),
-        #tta.Multiply(factors=[0.99, 1, 1.01]),        
+        tta.Multiply(factors=[0.99, 1, 1.01]),        
     ]
 )
     tta_model = tta.ClassificationTTAWrapper(model, test_transforms)
@@ -203,6 +205,7 @@ def test(model, device, test_loader, loss_function, epoch, num_classes=2, wandb_
         random.seed(42)
         for idx, batch_data in enumerate(tqdm(test_loader)):
             #print(idx)
+            #print(batch_data)
             #aug_outputs = torch.empty()
             #for i in range(1):
             aug_outputs = []
@@ -232,38 +235,41 @@ def test(model, device, test_loader, loss_function, epoch, num_classes=2, wandb_
             
             test_loss += loss_function(output, target).cuda().sum().item()
             #print(test_loss.device)
-            pred = tf.softmax(output).argmax(dim=1, keepdim=True)
-            
-            
+            pred = torch.as_tensor((torch.sigmoid(output) - treshold) > 0, dtype=torch.float) .cuda()
+            #print(pred)
+            #print(pred.size())
+            #preds = []
             
             if (idx==0):
-                preds=pred.flatten()
+                preds=pred
                 targets=target
                 outputs=output
             else:
-                preds = torch.cat((preds, pred.flatten()),0).cuda()
+                preds = torch.cat((preds, pred),0).cuda()
                 targets = torch.cat((targets, target),0).cuda()
                 outputs = torch.cat((outputs, output),0).cuda()
-            
+    print(preds)
             #torch.cuda.synchronize()
             #print(start.elapsed_time(end))
             #correct += pred.eq(target.view_as(pred)).sum().item()
     test_loss /= len(test_loader.dataset)
    
             
-    f1 = f1_score(to_numpy(preds), to_numpy(targets), average="macro") 
-    #roc = roc_auc_score(y_score = to_numpy(torch.softmax(outputs, dim=1)), \
-     #                       y_true = to_numpy(torch.nn.functional.one_hot(targets, num_classes)), \
-     #                      average = 'macro')
+    #f1 = f1_score(to_numpy(preds), to_numpy(targets), average="macro") 
+    roc = roc_auc_score(y_score = to_numpy(torch.sigmoid(outputs)), \
+                            y_true = to_numpy(targets), \
+                           average = 'macro')
+    print(f"Rock-auc - {roc}")
     #ap = precision_score(to_numpy(preds), to_numpy(targets), average="macro")
-    ap, f1_my = criterion(preds, targets)
+    ap, f1_my = criterion(preds, targets, num_classes=num_classes)
     if(wandb_log==1):
-        wandb.log({'Test loss': test_loss, 'Test F1': f1,  "Test F1 (my)": f1_my,\
-             'Test AP': ap}, step=epoch)
+        wandb.log({'Test loss': test_loss,  "Test F1 (my)": f1_my,\
+             'Test AP': ap, 'ROC-AUC': roc}, step=epoch)
     print(
-        "Test set: Average loss: {:.4f}, F1: {:.4f}\n".format(
+        "Test set: Average loss: {:.4f}, F1: {:.4f}, ROC-AUC: {:.3f}\n".format(
             test_loss,
-            f1
+            f1_my,
+            roc
         )
     )
     return len(targets)
@@ -316,7 +322,7 @@ def train_loop(args):
     WD = float(args.wd)
     B1 = float(args.b1)
     B2 = float(args.b2)
-    
+    TRESHOLD = float(args.treshold)
     INP_SIZE = int(args.inp_size)
     random.seed(42)
     np.random.seed(42)
@@ -342,10 +348,10 @@ def train_loop(args):
     elif (BASE.find('auto')!=-1):
         model, optimizer, loss = auto_prepare_model(lr=LR, device=DEVICE, name=BASE, inp_size = INP_SIZE, weight_decay=WD, beta_1=B1, beta_2=B2)
     else:
-        model, optimizer, loss = prepare_eff_model(lr=LR, device=DEVICE, name=BASE, inp_size = INP_SIZE, weight_decay=WD, beta_1=B1, beta_2=B2, im_size=IMAGE_SIZE)
+        model, optimizer, loss = prepare_eff_model(lr=LR, device=DEVICE, name=BASE, inp_size = INP_SIZE, weight_decay=WD, beta_1=B1, beta_2=B2, im_size=IMAGE_SIZE, num_classes=NUM_CLASSES)
     model.cuda()
     model = torch.nn.DataParallel(model, device_ids=[0])
-    train_loader, test_loader = prepare_dataset(csv_file_uf='data_uf.csv',csv_file_dc='data_dc.csv',
+    train_loader, test_loader = prepare_dataset(csv_file_uf='data_uf.csv',csv_file_dc='data_dc.csv', classes = "classes.csv",
                                         root_dir=DATA_PATH, transform = transform, image_size=IMAGE_SIZE, batch_size=BATCH_SIZE, train_prop=0.7, num_workers=8, assign=True)
     torch.save({
             'epoch': 0,
@@ -356,8 +362,8 @@ def train_loop(args):
         save_files_to_wandb(log_path = LOG_PATH, name=NAME) 
     print("==> Training model")
     for epoch in range(EPOCHS):
-        test_len = test(model, DEVICE, test_loader, loss, epoch, num_classes=NUM_CLASSES, wandb_log=WANDB)
-        train_len, train_loss = train(model, DEVICE, train_loader, optimizer, loss, epoch, name = NAME, num_classes=NUM_CLASSES, log_path = LOG_PATH, wandb_log = WANDB)
+        test_len = test(model, DEVICE, test_loader, loss, epoch, num_classes=NUM_CLASSES, wandb_log=WANDB, treshold=TRESHOLD)
+        train_len, train_loss = train(model, DEVICE, train_loader, optimizer, loss, epoch, name = NAME, num_classes=NUM_CLASSES, log_path = LOG_PATH, wandb_log = WANDB, treshold=TRESHOLD)
     
     
         
@@ -392,7 +398,8 @@ def main():
     parser.add_argument("--inp_size", default=1280, help="FC layer input size, default:1280")
     parser.add_argument("--b1", default=0.9, help="Beta 1, default: 0.9")
     parser.add_argument("--b2", default=0.999, help="Beta 2, default: 0.999")
-    parser.add_argument("--wd", default=1e-2, help="Weight decay, default: 1e-2")
+    parser.add_argument("--wd", default=1e-3, help="Weight decay, default: 1e-3")
+    parser.add_argument("--treshold", default=0.5, help="Treshold, default: 0.5")
     args = parser.parse_args()
     train_loop(args)
 if __name__ == "__main__":

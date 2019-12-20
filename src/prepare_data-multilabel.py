@@ -67,41 +67,10 @@ def to_numpy(target):
     return target.detach().cpu().numpy()
 
 
-@dataclass()
-class ItemsBatch:
-    images: torch.Tensor
-    labels: torch.Tensor
-    ids: List[int]
-    paths: List[Path]
-    items: List["DatasetItem"]
-
-
-@dataclass()
-class DatasetItem:
-    image: Union[torch.Tensor, Image.Image]
-    label: int
-    id: int
-    path: Path
-
-    @classmethod
-    def collate(cls, items: Sequence["DatasetItem"]) -> ItemsBatch:
-        #mp.set_start_method('spawn')
-        if not isinstance(items, list):
-            items = list(items)
-            #print(default_collate([item.label for item in items]))
-        return ItemsBatch(
-            images=default_collate([item.image for item in items]),
-            
-            labels=default_collate([item.label for item in items]),
-            ids=[item.id for item in items],
-            paths=[item.path for item in items],
-            items=items,
-        )
-
 class KernDataset(Dataset):
     """Kern dataset."""
 
-    def __init__(self, csv_file_dc,csv_file_uf, root_dir, transform=None, acc=0.2, image_size = 128):
+    def __init__(self, csv_file_dc, csv_file_uf, root_dir, classes, transform=None, acc=0.2, image_size = 128):
         np.random.seed(42)
         """
         Args:
@@ -117,6 +86,7 @@ class KernDataset(Dataset):
         self.acc = acc
         self.data_uf = pd.read_csv(root_dir+csv_file_uf)
         self.labels_path = root_dir+csv_file_uf
+        self.classes = pd.read_csv(root_dir+classes)
         self.root_dir = root_dir
         self.transform = transform
         self.data_dc = pd.read_csv(root_dir+csv_file_dc)
@@ -157,7 +127,8 @@ class KernDataset(Dataset):
             torch_augmented = torch.from_numpy(np.moveaxis(augmented / (255.0 if augmented.dtype == np.uint8 else 1), -1, 0).astype(np.float32))
             torch_augmented = torch_augmented
             #print(torch_augmented.device)
-        label = self.data_dc.loc[idx, 'class']
+        label = list(self.classes.loc[idx, ])
+        
         return DatasetItem(image=torch_augmented, label=label, id=idx, path=dc_img_name)
     
 def get_label_weights_from_pandas(data):
@@ -167,11 +138,11 @@ def get_label_weights_from_pandas(data):
     #print(labels_list)
     return labels_list
     
-def prepare_dataset(csv_file_uf, csv_file_dc, root_dir, transform, image_size=128, batch_size=64, num_workers=8, train_prop=0.7 , assign=False):
-    print('train_'+csv_file_uf)
-    train_dataset = KernDataset(csv_file_uf='train_'+csv_file_uf,csv_file_dc='train_'+csv_file_dc,
+def prepare_dataset(csv_file_uf, csv_file_dc, classes, root_dir, transform, image_size=128, batch_size=64, num_workers=8, train_prop=0.7 , assign=False):
+    print('Prepare dataset')
+    train_dataset = KernDataset(csv_file_uf='train_'+csv_file_uf,csv_file_dc='train_'+csv_file_dc, classes = "train_"+classes,
                                         root_dir=root_dir, transform = transform, image_size=image_size)
-    test_dataset = KernDataset(csv_file_uf='test_'+csv_file_uf,csv_file_dc='test_'+csv_file_dc,
+    test_dataset = KernDataset(csv_file_uf='test_'+csv_file_uf,csv_file_dc='test_'+csv_file_dc, classes = "train_"+classes,
                                         root_dir=root_dir, transform = test_aug(p=0.5), image_size=image_size)
     temp = pd.read_csv(root_dir+'train_'+csv_file_uf)
     
@@ -186,8 +157,8 @@ def prepare_dataset(csv_file_uf, csv_file_dc, root_dir, transform, image_size=12
             train_dataset,
             batch_size=batch_size,
             shuffle=False,
-            #sampler = RandomSampler(data_source=test_dataset, num_samples=int(len(test_dataset)), replacement=True),
-            sampler=ImbalancedDatasetSampler(dataset=train_dataset, num_samples=int(len(train_dataset)), assign=assign),
+            sampler = RandomSampler(data_source=test_dataset, num_samples=int(len(test_dataset)), replacement=True),
+            #sampler=ImbalancedDatasetSampler(dataset=train_dataset, num_samples=int(len(train_dataset)), assign=assign),
             collate_fn=DatasetItem.collate,
             num_workers=num_workers,
             pin_memory=True,
@@ -198,8 +169,8 @@ def prepare_dataset(csv_file_uf, csv_file_dc, root_dir, transform, image_size=12
             train_dataset,
             batch_size=batch_size,
             shuffle=False,
-            #sampler = RandomSampler(data_source=test_dataset, num_samples=int(len(test_dataset)), replacement=True),
-            sampler=ImbalancedDatasetSampler(dataset=train_dataset, num_samples=int(len(train_dataset)), assign=assign),
+            sampler = RandomSampler(data_source=test_dataset, num_samples=int(len(test_dataset)), replacement=True),
+            #sampler=ImbalancedDatasetSampler(dataset=train_dataset, num_samples=int(len(train_dataset)), assign=assign),
             collate_fn=DatasetItem.collate,
             num_workers=num_workers,
             pin_memory=True,

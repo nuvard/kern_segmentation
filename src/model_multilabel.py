@@ -169,7 +169,7 @@ def set_parameter_requires_grad(model, feature_extracting):
         for param in model.parameters():
             param.requires_grad = False
             
-def prepare_eff_model(device, name ='effitientnet_b0',  lr=1e-5, beta_1=0.9, beta_2=0.999, weight_decay=1e-3, inp_size = 1280, im_size=224):
+def prepare_eff_model(device, name ='effitientnet_b0',  lr=1e-5, beta_1=0.9, beta_2=0.999, weight_decay=1e-3, inp_size = 1280, im_size=224,num_classes=8):
     """
     Args:
       device: torch device (like torch.device("cuda"))
@@ -223,7 +223,7 @@ def prepare_eff_model(device, name ='effitientnet_b0',  lr=1e-5, beta_1=0.9, bet
             
             
             #nn.AdaptiveAvgPool2d(1),
-            nn.Linear(512, 6),
+            nn.Linear(512, num_classes),
            # nn.AdaptiveAvgPool2d(1),
         ) 
         temp = model.conv_stem.weight
@@ -243,7 +243,6 @@ def prepare_eff_model(device, name ='effitientnet_b0',  lr=1e-5, beta_1=0.9, bet
                 break
        # model.cuda()
         #print(model)
-        
     else:
         
         model = EfficientNet.from_pretrained(name) 
@@ -261,5 +260,5 @@ def prepare_eff_model(device, name ='effitientnet_b0',  lr=1e-5, beta_1=0.9, bet
     optimizer = optim.Adam(model.parameters(), lr=lr, betas=(beta_1,beta_2), weight_decay=weight_decay)
     #print(model)
     #model.cuda()
-    loss_function = loss.CrossEntropyLoss().cuda()
+    loss_function = nn.BCEWithLogitsLoss(weight=None, reduce=True).cuda()
     return (model.cuda(), optimizer, loss_function)
