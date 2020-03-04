@@ -23,6 +23,7 @@ from torchvision import transforms
 def test_device(device: str):
     torch.ones(1,2,3).to(device)
 
+
 def set_seed():
     random.seed(42)
     np.random.seed(42)
@@ -116,5 +117,3 @@ def log_wandb_images(inputs, labels, output, idx):
     
     wandb.log({"examples": payload}, commit=False)
     
-
-

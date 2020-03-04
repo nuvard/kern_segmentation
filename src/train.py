@@ -58,8 +58,9 @@ import ttach as tta
 def criterion(y_pred, y_true, epsilon = 1e-6, num_classes = 6, train=False):
     y_pred = to_numpy(tf.one_hot(y_pred, num_classes))
     y_true = to_numpy(tf.one_hot(y_true, num_classes))
-    if(train==True):
-        print(np.sum(y_true, axis=0))
+    #if(train==True):
+    print(np.sum(y_true, axis=0))
+    print(np.sum(y_pred, axis=0))
     tp = np.sum(y_true *y_pred, axis = 0)
     tn = np.sum((1 - y_true) * (1 - y_pred), axis =0)
     fp = np.sum((1 - y_true) * y_pred, axis=0)
@@ -97,7 +98,7 @@ def train(model, device, train_loader, optimizer, loss_function, epoch, name,  l
         loss = loss_function(output, target).cuda()
         loss.backward()
         optimizer.step()
-        pred = tf.softmax(output).cuda().argmax(dim=1, keepdim=True)
+        pred = output.argmax(dim=1, keepdim=True)
         if (idx==0):
             preds=pred.flatten()
             outputs = output
@@ -190,9 +191,9 @@ def test(model, device, test_loader, loss_function, epoch, num_classes=2, wandb_
     test_transforms = tta.Compose(
     [
         tta.HorizontalFlip(),
-        tta.Rotate90(angles=[0, 5]),
-        tta.Scale(scales=[0.8, 1, 1.2]),
-        #tta.Multiply(factors=[0.9, 1, 1.1]),        
+        #tta.Rotate90(angles=[0, 5]),
+        tta.Scale(scales=[0.85, 1, 1.15]),
+        #tta.Multiply(factors=[0.99, 1, 1.01]),        
     ]
 )
     tta_model = tta.ClassificationTTAWrapper(model, test_transforms)
@@ -344,8 +345,8 @@ def train_loop(args):
         model, optimizer, loss = prepare_eff_model(lr=LR, device=DEVICE, name=BASE, inp_size = INP_SIZE, weight_decay=WD, beta_1=B1, beta_2=B2, im_size=IMAGE_SIZE)
     model.cuda()
     model = torch.nn.DataParallel(model, device_ids=[0])
-    train_loader, test_loader = prepare_dataset(csv_file_uf=DATA_PATH+'data_uf.csv',csv_file_dc=DATA_PATH+'data_dc.csv',
-                                        root_dir=DATA_PATH, transform = transform, image_size=IMAGE_SIZE, batch_size=BATCH_SIZE, train_prop=0.7, num_workers=8)
+    train_loader, test_loader = prepare_dataset(csv_file_uf='data_uf.csv',csv_file_dc='data_dc.csv',
+                                        root_dir=DATA_PATH, transform = transform, image_size=IMAGE_SIZE, batch_size=BATCH_SIZE, train_prop=0.7, num_workers=8, assign=True)
     torch.save({
             'epoch': 0,
             'state_dict': model.state_dict(),
@@ -391,7 +392,7 @@ def main():
     parser.add_argument("--inp_size", default=1280, help="FC layer input size, default:1280")
     parser.add_argument("--b1", default=0.9, help="Beta 1, default: 0.9")
     parser.add_argument("--b2", default=0.999, help="Beta 2, default: 0.999")
-    parser.add_argument("--wd", default=1e-3, help="Weight decay, default: 1e-3")
+    parser.add_argument("--wd", default=1e-2, help="Weight decay, default: 1e-2")
     args = parser.parse_args()
     train_loop(args)
 if __name__ == "__main__":
