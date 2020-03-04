@@ -3,7 +3,11 @@ import torch.utils.data
 import torchvision
 from tqdm import tqdm
 import numba
+<<<<<<< HEAD
 import pandas as pd
+=======
+
+>>>>>>> e58308043ccf82a4902fc482479be4e6e3beba4c
 
 
 class ImbalancedDatasetSampler(torch.utils.data.sampler.Sampler):
@@ -96,6 +100,7 @@ class ImbalancedDatasetSampler(torch.utils.data.sampler.Sampler):
         dc["weight"] = self.classes.apply(apply_weights, axis=1)
         return (uf, dc, weights_list)
 
+<<<<<<< HEAD
     
     @numba.jit(parallel=True)
     def get_weights(self, pandas, dataset=None, label_to_count=None):
@@ -127,6 +132,22 @@ class ImbalancedDatasetSampler(torch.utils.data.sampler.Sampler):
         self.csv_data_uf = pd.read_csv(root_dir+csv_file_uf)
         self.csv_data_dc = pd.read_csv(root_dir+csv_file_dc)
         self.classes = pd.read_csv(root_dir+classes_file)
+=======
+      
+    def get_label_weights_from_pandas(self, data):
+        labels_list = []
+        for i in data['class'].value_counts():
+            labels_list.append(i)
+        #print(labels_list)
+        return labels_list
+
+    @numba.jit(parallel=True)
+    def get_weights(self, label_to_count, dataset):
+        return [1.0 / label_to_count[self._get_label(dataset, idx)]
+                    for idx in tqdm(self.indices)]
+
+    def __init__(self, dataset, pandas, indices=None, num_samples=None):
+>>>>>>> e58308043ccf82a4902fc482479be4e6e3beba4c
         print("==> Initialising sampler")
         # if indices is not provided, 
         # all elements in the dataset will be considered
@@ -140,9 +161,13 @@ class ImbalancedDatasetSampler(torch.utils.data.sampler.Sampler):
         if (set_new==True):
             set_weights_to_file()
         # distribution of classes in the dataset 
+<<<<<<< HEAD
         if (assign==True):
             print("=====> Checking distribution")
             label_to_count = self.get_label_weights_from_file(self.csv_data_dc, self.csv_data_uf, root_dir=self.root_dir, assign=True)
+=======
+        label_to_count = self.get_label_weights_from_pandas(pandas)  
+>>>>>>> e58308043ccf82a4902fc482479be4e6e3beba4c
         print("=====> Assigning weights")
         #csv_data_uf = pd.read_csv(root_dir+csv_file_uf)
         csv_data_dc = pd.read_csv(root_dir+self.csv_file_dc)
@@ -150,8 +175,12 @@ class ImbalancedDatasetSampler(torch.utils.data.sampler.Sampler):
         weights = self.get_weights(pandas=self.csv_data_dc)
         
         # weight for each sample
+<<<<<<< HEAD
         
         #weights = self.get_weights(label_to_count, dataset, pandas)
+=======
+        weights = self.get_weights(label_to_count, dataset)
+>>>>>>> e58308043ccf82a4902fc482479be4e6e3beba4c
         self.weights = torch.FloatTensor(weights)
 
     def _get_label(self, dataset, idx):

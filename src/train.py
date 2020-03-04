@@ -52,8 +52,12 @@ from model import *
 import shutil
 import argparse
 import numba
+<<<<<<< HEAD
 import ttach as tta
 
+=======
+import multiprocessing as mp
+>>>>>>> e58308043ccf82a4902fc482479be4e6e3beba4c
 
 def criterion(y_pred, y_true, epsilon = 1e-6, num_classes = 6, train=False):
     y_pred = to_numpy(tf.one_hot(y_pred, num_classes))
@@ -98,7 +102,7 @@ def train(model, device, train_loader, optimizer, loss_function, epoch, name,  l
         loss = loss_function(output, target).cuda()
         loss.backward()
         optimizer.step()
-        pred = output.argmax(dim=1, keepdim=True)
+        pred = tf.softmax(output).cuda().argmax(dim=1, keepdim=True)
         if (idx==0):
             preds=pred.flatten()
             outputs = output
@@ -147,7 +151,30 @@ def train(model, device, train_loader, optimizer, loss_function, epoch, name,  l
         }, log_path + "trained_models/" + name +".pth")
         
     return len(targets), running_loss
+def test_aug(p=0.5, image_size=128):
+    return Compose(
+      [  
+          #HueSaturationValue(hue_shif_limit=5, sat_shift_limit=5, val_shift_limit=5, p=p),
+          RandomBrightness(limit=0.1, p=p),
+         # GaussNoise(var_limit=20, p=p),
+          #ISONoise(p=p),
+          RandomSizedCrop(min_max_height=(int(image_size*0.8), int(image_size)), height=image_size, width=image_size, p=1),
+        #RandomCrop(image_size, image_size, p=1),
+        HorizontalFlip(p=p)
+      ]
+    )
+#@numba.jit()
+def augment(data):
+    for i in range(data.size()[0]):
+    #print(data[0, 0,:,:])
+        image_size = data[i].size()[-1]
+        transf = test_aug(image_size = 240)
+        to_augment = { "image" : data[i].detach().cpu().numpy()}
+        to_augment["image"] = np.moveaxis(to_augment["image"], 0, -1).astype(np.float32)
+        #print(to_augment)
+        augmented = transf(**to_augment)["image"]
 
+<<<<<<< HEAD
 def test_aug(p=0.5, image_size=128):
     return Compose(
       [  
@@ -172,6 +199,10 @@ def augment(data, image_size=224):
         #print(to_augment)
         augmented = torch.from_numpy(transf(**to_augment)["image"])
         data[i] = augmented.permute(2,0,1)
+=======
+        data[i] = torch.from_numpy(np.moveaxis(augmented / (255.0 if augmented.dtype == np.uint8 else 1), -1, 0).astype(np.float32))
+    #print(data[0,0,:,:])
+>>>>>>> e58308043ccf82a4902fc482479be4e6e3beba4c
     return data
     
 def test(model, device, test_loader, loss_function, epoch, num_classes=2, wandb_log = 0):
@@ -184,6 +215,7 @@ def test(model, device, test_loader, loss_function, epoch, num_classes=2, wandb_
     test_loss
     #correct = 0
     example_images = []
+<<<<<<< HEAD
     iterator = []
     #for i in range(3):
     #    iterators.append(iter(test_loader))
@@ -218,16 +250,47 @@ def test(model, device, test_loader, loss_function, epoch, num_classes=2, wandb_
             #for i in range(2):
                 #augmented_images = test_transforms.augment_image(dummy_images)
                 #data = augment(data)
+=======
+    iterators = []
+    #for i in range(3):
+    #    iterators.append(iter(test_loader))
+    
+    with torch.no_grad():
+        idx=0
+        iterator = iter(test_loader)
+        for idx in (tqdm(range(len(test_loader)))):
+            #print(idx)
+            #aug_outputs = torch.empty()
+            #for i in range(1):
+            
+            
+            start.record()
+            batch_data = next(iterator)  
+            end.record()
+            data, target = batch_data.images.cuda(), batch_data.labels.cuda()
+            
+            
+            
+>>>>>>> e58308043ccf82a4902fc482479be4e6e3beba4c
                 # target.cuda()
                 # data, target = batch_data.images.cuda(), batch_data.labels.cuda()
                 #print("++++++++++++++++++")
                 #batch_data = test_loader[idx]
+<<<<<<< HEAD
                # out = model(augmented_images).cuda()
                # aug_outputs.append(out)
             #aug_outputs = torch.stack(aug_outputs).cuda()
             #output = torch.stack(aug_outputs)
             #output = torch.mean(aug_outputs, dim=0).cuda()
             output = tta_model(data).cuda()
+=======
+                #out = model(data)
+                #aug_outputs = torch.cat(aug_outputs)
+            #output = torch.stack(aug_outputs)
+            #output = torch.mean(output, dim=0) 
+            
+            output = model(data).cuda()
+>>>>>>> e58308043ccf82a4902fc482479be4e6e3beba4c
             
             
             test_loss += loss_function(output, target).cuda().sum().item()
@@ -344,9 +407,14 @@ def train_loop(args):
     else:
         model, optimizer, loss = prepare_eff_model(lr=LR, device=DEVICE, name=BASE, inp_size = INP_SIZE, weight_decay=WD, beta_1=B1, beta_2=B2, im_size=IMAGE_SIZE)
     model.cuda()
+<<<<<<< HEAD
     model = torch.nn.DataParallel(model, device_ids=[0])
     train_loader, test_loader = prepare_dataset(csv_file_uf='data_uf.csv',csv_file_dc='data_dc.csv',
                                         root_dir=DATA_PATH, transform = transform, image_size=IMAGE_SIZE, batch_size=BATCH_SIZE, train_prop=0.7, num_workers=8, assign=True)
+=======
+    train_loader, test_loader = prepare_dataset(csv_file_uf=DATA_PATH+'data_uf.csv',csv_file_dc=DATA_PATH+'data_dc.csv',
+                                        root_dir=DATA_PATH, transform = transform, image_size=IMAGE_SIZE, batch_size=BATCH_SIZE, train_prop=0.8)
+>>>>>>> e58308043ccf82a4902fc482479be4e6e3beba4c
     torch.save({
             'epoch': 0,
             'state_dict': model.state_dict(),
@@ -382,7 +450,11 @@ def main():
     parser.add_argument("--lr", default=1e-3, help="Set up learning rate, default: 1e-3")
     parser.add_argument("--batch_size", default=64, help="Set up batch size, default: 64")
     parser.add_argument("--image_size", default=128, help="Set up image size, default: 128 (for rn18)")
+<<<<<<< HEAD
     parser.add_argument("--path", default='/headless/shared/kern_segmentation/', help="Set up working dir, default: /project/")
+=======
+    parser.add_argument("--path", default='/headless/shared/kern_segmentation/', help="Set up working dir, default: /project")
+>>>>>>> e58308043ccf82a4902fc482479be4e6e3beba4c
     parser.add_argument("--tags", default='', help="Make model name individual")
     parser.add_argument("--epochs", default=200, help="Set up num of epochs, default: 100")
     parser.add_argument("--num_classes", default=6, help="Set up num of classes, default: 6 (oil)")
@@ -397,9 +469,15 @@ def main():
     train_loop(args)
 if __name__ == "__main__":
     try:
+<<<<<<< HEAD
         torch.multiprocessing.set_start_method('spawn')
     except RuntimeError:
         pass
     
     #set_start_method('spawn', force=True)
+=======
+        mp.set_start_method('spawn')
+    except RuntimeError:
+        pass
+>>>>>>> e58308043ccf82a4902fc482479be4e6e3beba4c
     main()

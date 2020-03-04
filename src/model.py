@@ -197,6 +197,7 @@ def prepare_eff_model(device, name ='effitientnet_b0',  lr=1e-5, beta_1=0.9, bet
                       )   
         """
         model.global_pool = nn.Sequential(
+<<<<<<< HEAD
                      nn.BatchNorm2d(inp_size), 
                      nn.ReLU(),
                      nn.Dropout(p=0.3),
@@ -206,6 +207,14 @@ def prepare_eff_model(device, name ='effitientnet_b0',  lr=1e-5, beta_1=0.9, bet
                      nn.ReLU(),
                      nn.Dropout(p=0.4),
                      #AugmentedConv(in_channels=512, out_channels=100, kernel_size=1, dk=60, dv=6, Nh=6, relative=False, stride=2),
+=======
+                       AugmentedConv(in_channels=1280, out_channels=6, kernel_size=1, dk=40, dv=4, Nh=1, relative=False, stride=2),
+                     #nn.Conv2d(588, 6, kernel_size=1, padding = 1, stride=1, bias=False),
+                     nn.BatchNorm2d(6), 
+                     nn.Dropout(p=0.25),
+                     #nn.AdaptiveAvgPool2d(1)
+                     
+>>>>>>> e58308043ccf82a4902fc482479be4e6e3beba4c
                      
                      nn.AdaptiveAvgPool2d(1)                     
                       )
@@ -213,6 +222,7 @@ def prepare_eff_model(device, name ='effitientnet_b0',  lr=1e-5, beta_1=0.9, bet
         model.classifier = nn.Sequential(
            
             #nn.BatchNorm1d(6),
+<<<<<<< HEAD
             
                      #nn.ReLU(),
             
@@ -225,9 +235,22 @@ def prepare_eff_model(device, name ='effitientnet_b0',  lr=1e-5, beta_1=0.9, bet
             #nn.AdaptiveAvgPool2d(1),
             nn.Linear(512, 6),
            # nn.AdaptiveAvgPool2d(1),
+=======
+            nn.AdaptiveAvgPool2d(1)
+                     #nn.ReLU(),
+            
+            #nn.Dropout(p=0.25),
+            #nn.BatchNorm1d(inp_size, eps=1e-05, momentum=0.1),
+            #nn.Dropout(p=0.5),
+            
+            #nn.ReLU(),
+            #nn.AdaptiveAvgPool2d(1),
+            #nn.Linear(inp_size, 6)
+>>>>>>> e58308043ccf82a4902fc482479be4e6e3beba4c
         ) 
         temp = model.conv_stem.weight
         #model.conv_stem = AttentionConv2d(in_channels=6, out_channels=64, kernel_size=7, dk=40, dv=4, Nh=4, relative=True, stride=2, padding=3, shape = 24).to(device)
+<<<<<<< HEAD
         
         model.conv_stem = nn.Conv2d(6, 64, kernel_size=7, stride=2, padding=3, bias=False)
         model.conv_stem.weight = nn.Parameter(torch.cat((temp,temp),dim=1))
@@ -244,6 +267,13 @@ def prepare_eff_model(device, name ='effitientnet_b0',  lr=1e-5, beta_1=0.9, bet
        # model.cuda()
         #print(model)
         
+=======
+        
+        model.conv_stem = nn.Conv2d(6, 64, kernel_size=7, stride=2, padding=3, bias=False)
+        model.conv_stem.weight = nn.Parameter(torch.cat((temp,temp),dim=1))
+       # model.cuda()
+        #print(model)
+>>>>>>> e58308043ccf82a4902fc482479be4e6e3beba4c
     else:
         
         model = EfficientNet.from_pretrained(name) 

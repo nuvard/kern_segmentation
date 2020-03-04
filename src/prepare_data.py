@@ -31,7 +31,10 @@ import warnings
 warnings.filterwarnings("ignore")
 from sampler import ImbalancedDatasetSampler
 
+<<<<<<< HEAD
 import pandas as pd
+=======
+>>>>>>> e58308043ccf82a4902fc482479be4e6e3beba4c
 
 def strong_aug(p=0.5, image_size=128):
     return Compose(
@@ -167,6 +170,7 @@ def get_label_weights_from_pandas(data):
     #print(labels_list)
     return labels_list
     
+<<<<<<< HEAD
 def prepare_dataset(csv_file_uf, csv_file_dc, root_dir, transform, image_size=128, batch_size=64, num_workers=8, train_prop=0.7 , assign=False):
     print('train_'+csv_file_uf)
     train_dataset = KernDataset(csv_file_uf='train_'+csv_file_uf,csv_file_dc='train_'+csv_file_dc,
@@ -206,11 +210,40 @@ def prepare_dataset(csv_file_uf, csv_file_dc, root_dir, transform, image_size=12
             worker_init_fn=set_seed()
         )
             
+=======
+def prepare_dataset(csv_file_uf, csv_file_dc, root_dir, transform, image_size=128, batch_size=64, num_workers=10, train_prop=0.8 ):
+    
+    dataset = KernDataset(csv_file_uf=csv_file_uf,csv_file_dc=csv_file_dc,
+                                        root_dir=root_dir, transform = transform, image_size=image_size)
+    temp = pd.read_csv(csv_file_uf)
+    device = torch.device("cpu")
+    #weights = torch.FloatTensor(get_label_weights_from_pandas(temp))
+    train_size = int(train_prop * len(dataset))
+    test_size = len(dataset) - train_size
+
+    train_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, test_size])
+    
+    train_loader = torch.utils.data.DataLoader(
+        train_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        sampler=ImbalancedDatasetSampler(train_dataset, pandas = temp, num_samples=int(len(train_dataset)*2)),
+        collate_fn=DatasetItem.collate,
+        num_workers=num_workers,
+        pin_memory=True,
+        worker_init_fn=set_seed()
+    )
+
+>>>>>>> e58308043ccf82a4902fc482479be4e6e3beba4c
     test_loader = torch.utils.data.DataLoader(
         test_dataset,
         batch_size=batch_size,
         shuffle=False,
+<<<<<<< HEAD
         sampler = RandomSampler(data_source=test_dataset, num_samples=int(len(test_dataset)), replacement=True),
+=======
+        sampler = RandomSampler(data_source=test_dataset, num_samples=int(len(test_dataset)*2), replacement=True),
+>>>>>>> e58308043ccf82a4902fc482479be4e6e3beba4c
         collate_fn=DatasetItem.collate,
         num_workers=num_workers,
         pin_memory=True,
