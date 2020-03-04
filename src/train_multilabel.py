@@ -69,7 +69,7 @@ def criterion(y_pred, y_true, epsilon = 1e-6, num_classes = 8, train=False):
     precision = tp / (tp + fp + epsilon)
     recall = tp / (tp + fn + epsilon)
     f1 = 2* (precision*recall) / (precision + recall + epsilon)
-    return (np.mean(precision), np.mean(f1))
+    return (np.mean(precision), np.mean(f1), np.mean(recall))
 
 def train(model, device, train_loader, optimizer, loss_function, epoch, name,  log_path, num_classes=2, wandb_log=0, treshold=0.5):
     """
@@ -114,7 +114,7 @@ def train(model, device, train_loader, optimizer, loss_function, epoch, name,  l
     running_loss = running_loss/len(train_loader.dataset)
     #f1 = f1_score(to_numpy(preds), to_numpy(targets), average="macro") 
     
-    ap, f1_my = criterion(preds, targets, train=True, num_classes=num_classes)
+    ap, f1_my, recall = criterion(preds, targets, train=True, num_classes=num_classes)
     roc = roc_auc_score(y_score = to_numpy(torch.sigmoid(outputs)), \
                             y_true = to_numpy(targets), \
                            average = 'macro')
@@ -123,7 +123,7 @@ def train(model, device, train_loader, optimizer, loss_function, epoch, name,  l
     if wandb_log==1:
         print(1)
         wandb.log({'Train loss': running_loss, "F1 (my)": f1_my,\
-               'AP': ap, 'ROC-AUC': roc}, step=epoch)
+               'AP': ap, 'recall': recall, 'ROC-AUC': roc}, step=epoch)
    
     print(
         "Train Epoch: {} \tLoss: {:.6f}  My F1: {:.4f}, AP: {:.4f}, ROC-AUC: {:.3f}".format(
@@ -195,7 +195,7 @@ def test(model, device, test_loader, loss_function, epoch, num_classes=2, wandb_
         tta.HorizontalFlip(),
         #tta.Rotate90(angles=[0, 5]),
         tta.Scale(scales=[0.85, 1, 1.15]),
-        tta.Multiply(factors=[0.99, 1, 1.01]),        
+        #tta.Multiply(factors=[0.99, 1, 1.01]),        
     ]
 )
     tta_model = tta.ClassificationTTAWrapper(model, test_transforms)
@@ -248,7 +248,7 @@ def test(model, device, test_loader, loss_function, epoch, num_classes=2, wandb_
                 preds = torch.cat((preds, pred),0).cuda()
                 targets = torch.cat((targets, target),0).cuda()
                 outputs = torch.cat((outputs, output),0).cuda()
-    print(preds)
+    #print(preds)
             #torch.cuda.synchronize()
             #print(start.elapsed_time(end))
             #correct += pred.eq(target.view_as(pred)).sum().item()
@@ -261,12 +261,12 @@ def test(model, device, test_loader, loss_function, epoch, num_classes=2, wandb_
                            average = 'macro')
     print(f"Rock-auc - {roc}")
     #ap = precision_score(to_numpy(preds), to_numpy(targets), average="macro")
-    ap, f1_my = criterion(preds, targets, num_classes=num_classes)
+    ap, f1_my , recall = criterion(preds, targets, num_classes=num_classes)
     if(wandb_log==1):
         wandb.log({'Test loss': test_loss,  "Test F1 (my)": f1_my,\
-             'Test AP': ap, 'ROC-AUC': roc}, step=epoch)
+             'Test AP': ap,'Test recall': recall, 'Test ROC-AUC': roc}, step=epoch)
     print(
-        "Test set: Average loss: {:.4f}, F1: {:.4f}, ROC-AUC: {:.3f}\n".format(
+        "Test set: Average loss: {:.4f}, F1: {:.4f}, Test ROC-AUC: {:.3f}\n".format(
             test_loss,
             f1_my,
             roc
@@ -352,7 +352,7 @@ def train_loop(args):
     model.cuda()
     model = torch.nn.DataParallel(model, device_ids=[0])
     train_loader, test_loader = prepare_dataset(csv_file_uf='data_uf.csv',csv_file_dc='data_dc.csv', classes = "classes.csv",
-                                        root_dir=DATA_PATH, transform = transform, image_size=IMAGE_SIZE, batch_size=BATCH_SIZE, train_prop=0.7, num_workers=8, assign=True)
+                                        root_dir=DATA_PATH, transform = transform, image_size=IMAGE_SIZE, batch_size=BATCH_SIZE, train_prop=0.7, num_workers=8, assign=False)
     torch.save({
             'epoch': 0,
             'state_dict': model.state_dict(),
@@ -361,6 +361,7 @@ def train_loop(args):
     if (WANDB == 1):
         save_files_to_wandb(log_path = LOG_PATH, name=NAME) 
     print("==> Training model")
+    print("=====> Initial test")
     for epoch in range(EPOCHS):
         test_len = test(model, DEVICE, test_loader, loss, epoch, num_classes=NUM_CLASSES, wandb_log=WANDB, treshold=TRESHOLD)
         train_len, train_loss = train(model, DEVICE, train_loader, optimizer, loss, epoch, name = NAME, num_classes=NUM_CLASSES, log_path = LOG_PATH, wandb_log = WANDB, treshold=TRESHOLD)

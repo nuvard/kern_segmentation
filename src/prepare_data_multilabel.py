@@ -37,11 +37,11 @@ def strong_aug(p=0.5, image_size=128):
     return Compose(
       [  
           #HueSaturationValue(hue_shif_limit=5, sat_shift_limit=5, val_shift_limit=5, p=p),
-          RandomBrightness(limit=0.02, p=p),
-          GaussNoise(var_limit=5, p=p),
+          RandomBrightness(limit=0.01, p=p),
+          GaussNoise(var_limit=4, p=p),
           #RandomContrast(p=p),
           #ISONoise(p=p),
-          RandomSizedCrop(min_max_height=(int(image_size*0.7), int(image_size)), height=image_size, width=image_size, p=0.8),
+          RandomSizedCrop(min_max_height=(int(image_size*0.6), int(image_size)), height=image_size, width=image_size, p=0.8),
         #RandomCrop(image_size, image_size, p=1),
         HorizontalFlip(p=p),
         
@@ -158,7 +158,7 @@ class KernDataset(Dataset):
             torch_augmented = torch.from_numpy(np.moveaxis(augmented / (255.0 if augmented.dtype == np.uint8 else 1), -1, 0).astype(np.float32))
             torch_augmented = torch_augmented
             #print(torch_augmented.device)
-        label = torch.as_tensor(self.classes.loc[idx,], dtype=torch.float)
+        label = torch.as_tensor(self.classes.loc[idx,["алевролит","аргиллит","песчаник"]], dtype=torch.float)
         return DatasetItem(image=torch_augmented, label=label, id=idx, path=dc_img_name)
     
 def get_label_weights_from_pandas(data):
@@ -172,10 +172,12 @@ def prepare_dataset(csv_file_uf, csv_file_dc, classes, root_dir, transform, imag
     #print('train_'+csv_file_uf)
     train_dataset = KernDataset(csv_file_uf='train_'+csv_file_uf,csv_file_dc='train_'+csv_file_dc, classes = "train_"+classes,
                                         root_dir=root_dir, transform = transform, image_size=image_size)
-    test_dataset = KernDataset(csv_file_uf='test_'+csv_file_uf,csv_file_dc='test_'+csv_file_dc, classes = "train_"+classes,
-                                        root_dir=root_dir, transform = test_aug(p=0.5), image_size=image_size)
-    temp = pd.read_csv(root_dir+'train_'+csv_file_uf)
     
+    test_dataset = KernDataset(csv_file_uf='test_'+csv_file_uf,csv_file_dc='test_'+csv_file_dc, classes = "test_"+classes,
+                                        root_dir=root_dir, transform = test_aug(p=0.5), image_size=image_size)
+    print(len(test_dataset))
+    temp = pd.read_csv(root_dir+'train_'+csv_file_uf)
+    #print(temp.head())
     device = torch.device("cpu")
     #weights = torch.FloatTensor(get_label_weights_from_pandas(temp))
     #train_size = int(train_prop * len(dataset))
@@ -187,8 +189,8 @@ def prepare_dataset(csv_file_uf, csv_file_dc, classes, root_dir, transform, imag
             train_dataset,
             batch_size=batch_size,
             shuffle=False,
-            sampler = RandomSampler(data_source=test_dataset, num_samples=int(len(test_dataset)), replacement=True),
-            #sampler=ImbalancedDatasetSampler(dataset=train_dataset, num_samples=int(len(train_dataset)), assign=assign),
+            #sampler = RandomSampler(data_source=test_dataset, num_samples=int(len(test_dataset)), replacement=True),
+            sampler=ImbalancedDatasetSampler(dataset=train_dataset, num_samples=int(len(train_dataset)), assign=assign),
             collate_fn=DatasetItem.collate,
             num_workers=num_workers,
             pin_memory=True,
@@ -199,8 +201,8 @@ def prepare_dataset(csv_file_uf, csv_file_dc, classes, root_dir, transform, imag
             train_dataset,
             batch_size=batch_size,
             shuffle=False,
-            sampler = RandomSampler(data_source=test_dataset, num_samples=int(len(test_dataset)), replacement=True),
-            #sampler=ImbalancedDatasetSampler(dataset=train_dataset, num_samples=int(len(train_dataset)), assign=assign),
+            #sampler = RandomSampler(data_source=test_dataset, num_samples=int(len(test_dataset)), replacement=True),
+            sampler=ImbalancedDatasetSampler(dataset=train_dataset, num_samples=int(len(train_dataset)), assign=assign),
             collate_fn=DatasetItem.collate,
             num_workers=num_workers,
             pin_memory=True,

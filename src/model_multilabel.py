@@ -182,7 +182,7 @@ def prepare_eff_model(device, name ='effitientnet_b0',  lr=1e-5, beta_1=0.9, bet
     if(name.find('_')!=-1):
         torch.hub.list('rwightman/gen-efficientnet-pytorch') 
         model =  torch.hub.load('rwightman/gen-efficientnet-pytorch', name, pretrained=True)
-        #print(model) 
+        print(model) 
         """
         model.global_pool = nn.Sequential(
             nn.Conv2d(1280, 6, kernel_size=1, stride=1, bias=False),
@@ -196,7 +196,9 @@ def prepare_eff_model(device, name ='effitientnet_b0',  lr=1e-5, beta_1=0.9, bet
                       nn.Linear(6, 6)    
                       )   
         """
-        model.global_pool = nn.Sequential(
+        print(inp_size)
+        if name.find('mobilenet')==-1:
+            model.global_pool = nn.Sequential(
                      nn.BatchNorm2d(inp_size), 
                      nn.ReLU(),
                      nn.Dropout(p=0.3),
@@ -210,7 +212,8 @@ def prepare_eff_model(device, name ='effitientnet_b0',  lr=1e-5, beta_1=0.9, bet
                      nn.AdaptiveAvgPool2d(1)                     
                       )
         
-        model.classifier = nn.Sequential(
+        
+            model.classifier = nn.Sequential(
            
             #nn.BatchNorm1d(6),
             
@@ -226,6 +229,7 @@ def prepare_eff_model(device, name ='effitientnet_b0',  lr=1e-5, beta_1=0.9, bet
             nn.Linear(512, num_classes),
            # nn.AdaptiveAvgPool2d(1),
         ) 
+            
         temp = model.conv_stem.weight
         #model.conv_stem = AttentionConv2d(in_channels=6, out_channels=64, kernel_size=7, dk=40, dv=4, Nh=4, relative=True, stride=2, padding=3, shape = 24).to(device)
         
